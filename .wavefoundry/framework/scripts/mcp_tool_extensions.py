@@ -342,6 +342,16 @@ def stock_spec_routes() -> dict[str, str]:
     return {old: new for old, new in SPEC_TOOL_NAMES.items() if old not in protected and new not in occupied}
 
 
+def aliased_spec_routes() -> dict[str, str]:
+    """Return declared aliases that use the replacement spelling for its predecessor."""
+    return {old: new for old, new in SPEC_TOOL_NAMES.items() if EXTENSION_TOOL_ALIASES.get(new) == old}
+
+
+def spec_permission_routes() -> dict[str, str]:
+    """Renames that require permission carry-over, irrespective of schema ownership."""
+    return {**stock_spec_routes(), **aliased_spec_routes()}
+
+
 def retired_stock_tools() -> set[str]:
     """An explicitly rebound old spelling belongs to the distribution."""
     return set(SPEC_TOOL_NAMES) - set(override_targets()) - set(replacement_targets()) - set(EXTENSION_TOOL_ALIASES)

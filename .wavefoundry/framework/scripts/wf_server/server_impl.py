@@ -24420,15 +24420,23 @@ def _spec_registration_routes(table, get_handler):
     served_names = mcp_tool_extensions.served_name_map()
     alias_calls = _alias_call_specs(table or {})
     unavailable = {}
-    if stock_routes:
+    permission_routes = mcp_tool_extensions.spec_permission_routes() if isinstance(table, dict) else {}
+    if permission_routes:
         root = getattr(get_handler(), "root", None)
-        holds = _load_script("mcp_tool_roster").spec_permission_holds(root, stock_routes) if root else {
+        holds = _load_script("mcp_tool_roster").spec_permission_holds(root, permission_routes) if root else {
             new: "Select the repository and restart the host to check its tool permissions."
-            for new in stock_routes.values()
+            for new in permission_routes.values()
         }
         stock_routes = {old: new for old, new in stock_routes.items() if new not in holds}
     else:
         holds = {}
+    for old, new in mcp_tool_extensions.aliased_spec_routes().items():
+        if new in holds:
+            # Never suggest a held alias, even through a parameter-mapped usage hint.
+            served_names.pop(old, None)
+            alias_calls.pop(old, None)
+            if old in mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS or old in mcp_tool_extensions.retired_stock_tools():
+                unavailable[old] = holds[new]
     for old, new in mcp_tool_extensions.SPEC_TOOL_NAMES.items():
         if old in stock_routes:
             if old not in served_names:
@@ -24515,7 +24523,7 @@ def _compatible_spec_id_tool(name: str, tool: Any) -> Any:
     return tool.model_copy(update={**update, "fn": compatible})
 
 
-def _install_served_names(mcp: Any, get_handler: Any, stock_routes, served_names, alias_calls) -> None:
+def _install_served_names(mcp: Any, get_handler: Any, stock_routes, served_names, alias_calls, holds) -> None:
     """Core-behaviour aliases, aliases and hidden names (wave 1z8oz).
 
     Runs after the main MIDDLEWARE pass, so every copy shares the wrapped
@@ -24543,6 +24551,8 @@ def _install_served_names(mcp: Any, get_handler: Any, stock_routes, served_names
             table[alias] = _mapped_alias_tool(alias, table[canonical], parameters[alias], served_names, alias_calls)
         else:
             table[alias] = table[canonical].model_copy(update={"name": alias})
+    for alias in holds.keys() & mcp_tool_extensions.EXTENSION_TOOL_ALIASES.keys():
+        table.pop(alias, None)
     for old, new in stock_routes.items():
         tool = table[old]
         description = tool.description or ""
@@ -29377,7 +29387,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         table = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
         stock_routes, served_names, alias_calls, unavailable, holds = _spec_registration_routes(table, get_handler)
         if _EXTENSION_PROVENANCE is not None:
-            _EXTENSION_PROVENANCE["spec_tool_remedies"] = dict(unavailable)
+            _EXTENSION_PROVENANCE["spec_tool_remedies"] = {**unavailable, **holds}
         explicit_spec_overrides = mcp_tool_extensions.override_targets().keys() & mcp_tool_extensions.SPEC_TOOL_NAMES.keys()
         if (unavailable or mcp_tool_extensions.served_name_map()
                 or mcp_tool_extensions.EXTENSION_TOOL_PARAMETERS or explicit_spec_overrides):
@@ -29395,7 +29405,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             ),)
         mcp_tool_registry.apply_middleware(mcp, get_handler, chain)
         if isinstance(table, dict) and table:
-            _install_served_names(mcp, get_handler, stock_routes, served_names, alias_calls)
+            _install_served_names(mcp, get_handler, stock_routes, served_names, alias_calls, holds)
         # Wave 1zoju (1zodw): last, over the whole served table, so an
         # exception from any inner wrapper or translator is rendered too.
         _apply_render_pass(mcp, get_handler)

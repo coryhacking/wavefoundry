@@ -291,6 +291,50 @@ class ModelBundleTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "does not match the canonical"):
             model_bundle.build_bundle(self.out, cache_root=self.cache)
 
+    def test_missing_reranker_weight_names_manifest_member(self):
+        component = next(c for c in self._test_manifest["components"] if c["id"] == "reranker-clean-onnx")
+        path = Path(component["target"], component["directory"], "snapshots/rev/onnx/model.onnx")
+        (self.cache / path).unlink()
+        with self.assertRaisesRegex(RuntimeError, "warmed model cache does not match") as caught:
+            model_bundle.build_bundle(self.out, cache_root=self.cache)
+        self.assertIn(f"reranker-clean-onnx: models/{path.as_posix()} missing from the cache", str(caught.exception))
+
+    def test_manifest_mismatch_names_files_and_fields_without_values(self):
+        component = self._test_manifest["components"][0]
+        prefix = f"models/{component['target']}/{component['directory']}"
+        base = self.cache / component["target"] / component["directory"]
+        (base / "refs/main").write_text("private-revision")
+        (base / "snapshots/rev/extra").write_bytes(b"extra")
+        self._test_manifest["model_set_version"] = "other"
+        with self.assertRaises(RuntimeError) as caught:
+            model_bundle.build_bundle(self.out, cache_root=self.cache)
+        message = str(caught.exception)
+        for expected in ("model_set_version", f"{component['id']}: revision",
+                         f"{prefix}/refs/main content digest differs",
+                         f"{prefix}/snapshots/rev/extra not in the canonical manifest"):
+            self.assertIn(expected, message)
+        self.assertNotIn("private-revision", message)
+        self.assertNotIn(str(self.cache), message)
+        self.assertNotRegex(message, r"[0-9a-f]{64}")
+
+    def test_manifest_mismatch_reports_order_only(self):
+        self._test_manifest["components"][0]["files"].reverse()
+        with self.assertRaisesRegex(RuntimeError, "differ only in order"):
+            model_bundle.build_bundle(self.out, cache_root=self.cache)
+
+    def test_manifest_mismatch_counts_omitted_files(self):
+        component = self._test_manifest["components"][0]
+        prefix = f"models/{component['target']}/{component['directory']}/snapshots/rev"
+        for i in range(25):
+            component["files"].append({"path": f"{prefix}/missing-{i:02}", "sha256": "a" * 64})
+        with self.assertRaises(RuntimeError) as caught:
+            model_bundle.build_bundle(self.out, cache_root=self.cache)
+        message = str(caught.exception)
+        self.assertEqual(message.count("missing from the cache"), 20)
+        self.assertTrue(message.endswith("and 5 more"), message)
+        self.assertNotIn(str(self.cache), message)
+        self.assertNotRegex(message, r"[0-9a-f]{64}")
+
     def test_build_materialize_and_reuse(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
         # Wave 1vglb: follow the live constant, not a literal set number.

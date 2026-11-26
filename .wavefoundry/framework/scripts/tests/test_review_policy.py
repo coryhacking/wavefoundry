@@ -351,6 +351,30 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 before,
             )
 
+    def test_unregistered_retired_prose_blocks_upgrade_with_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(tmp)
+            layout = review_policy_reconcile.record_paths
+            evidence = "tools/upstream-sync/baselines/example/known-failures-delta.md"
+            plan = f"{layout.PLANS_ROOT}/example.md"
+            historical = f"{WAVES_REL}/closed-example/{RECORD}"
+            for rel in (evidence, plan, historical):
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# Notes\n\npre-implementation-review\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as caught:
+                review_policy_reconcile.plan_reconciliation(root)
+            message = str(caught.exception)
+            for rel in (evidence, plan):
+                self.assertIn(f"{rel}: retired lifecycle prose outside a registered carrier", message)
+            self.assertNotIn(historical, message)
+            self.assertIn("blocks the upgrade", message)
+            self.assertIn("automatic rewrite is refused", message)
+            self.assertIn("'pre-implementation-review' at line(s) 3", message)
+            self.assertIn("rewrite manually", message)
+            self.assertIn("retry the same upgrade command", message)
+            self.assertNotIn("report-only", message)
+
     def test_configured_archive_root_is_excluded_from_live_markdown_preflight(self):
         """Change 1zim7: a read-only archive root inside ``docs/`` is neither
         reported nor rewritten, while the same prose in a live document is

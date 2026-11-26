@@ -8,6 +8,29 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.54.0] - 2026-11-26
+
+### Added
+
+- Ask `/wf-contract` to inspect an existing behavior contract for drift. It reports discrepancies against the implementation and tests without editing the contract. Wave 24c3o / 24c3s.
+- `memory_add` and `memory_consolidate` accept an action delta and optional validation rationale so replacement records keep the reason a lesson matters. Memory validation applies the same single-line and length checks. Waves 24bik / 24bij and 24a51 / 24a50.
+- `wf upgrade --dry-run` lists the retired model components eligible for cleanup. **Before a scratch upgrade from 1.53**, account for the shared workstation cache. The installed 1.53 runner cannot preview the list, and cleanup can remove models used by other repositories. Wave 24eth / 24e91.
+
+### Changed
+
+- Fresh installations that need to bootstrap uv use 0.13.7 with its verified PyPI wheel hashes. Setup keeps an existing uv installation.
+
+- Memory evaluation reuses each comparison query embedding across ranking methods and batches queries on qualified Tensorwell and direct CPU or GPU paths. Other providers use scalar queries. The production comparison still runs through the production handler. Wave 24e1w / 24e1v.
+- Readiness reviewers independently predict an observable result before reading the expected answer. Plan reviewers test whether competing goals can both be met, and the council flags repairs that would reverse an earlier repair. Maintainers can check reviewer context isolation with a paired control. Wave 24c3o / 24c3p–24c3r.
+- Plan arc now closes an arc at its existing path with the original success criteria, supporting wave records, evidence gaps and links to deferred work. Arc 244cm.
+
+### Fixed
+
+- Renamed spec-tool aliases preserve a distribution’s host permission rules. While a replacement is withheld, recovery hints point to the callable predecessor. Wave 24eth / 24cji.
+- Upgrade errors for retired lifecycle wording explicitly identify the blocking text and tell the operator how to edit it and retry. Wave 24eth / 24dsp.
+- Model companion builds name the component and mismatched files. Errors list up to 20 differences and count the rest. Wave 24eth / 24etf.
+- The extension contract shows how a renamed parameter changes its echoed response key and explains why a duplicate `response_keys` mapping fails validation. Wave 24eth / 24etg.
+
 ## [1.53.0] - 2026-11-25
 
 ### Added

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-24
+Last verified: 2026-11-26
 
 ## Verification Commands
 
@@ -730,7 +730,7 @@ Agents running **Upgrade wave framework** must follow `docs/prompts/upgrade-wave
 
 **`build_pack.py` semantics:** the pack is semver-versioned — `build_pack.py --version MAJOR.MINOR.PATCH` stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<lifecycle-build-suffix>` and writes the source-only archive `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` (no semantic index is built or shipped). Beginning with 1.16.0, `--release` and `--release-dry-run` require `--with-models` and build the declared `wavefoundry-models-<MODEL_SET_VERSION>.zip` companion (set 3 from the release after 1.17.0) from the warmed local cache before publication; bare non-release builds may remain feature-only. `--release` additionally runs the preflight (clean tree on `main`, matching `## [<version>]` CHANGELOG section, unused tag, `gh auth status` succeeds, then the qualification gate over the default, second and declared reports), commits the stamp, tags, pushes, and uploads the exact assets plus `SHA256SUMS`. Every pack carries `.wavefoundry/framework/BUILD-PROVENANCE.json` naming its source commit.
 
-**1.16 retired-model cleanup:** after the freshly loaded upgrade code verifies the installed canonical model set and a stable complete docs-and-code epoch in `index.sqlite`, cleanup removes only the exact retired Wavefoundry-owned BAAI cache components. It runs before dashboard restart and lock removal. A cleanup failure retains the upgrade lock with `failed_phase=retired_model_cleanup`; rerun the cleanup phase after correcting the reported target. The flat `retired_model_cleanup_status`, `_removed`, `_absent`, `_unowned`, and `_failed` fields are the recovery authority. Dry-run reports `dry_run` with four empty lists and deletes nothing.
+**1.16 retired-model cleanup:** after the freshly loaded upgrade code verifies the installed canonical model set and a stable complete docs-and-code epoch in `index.sqlite`, cleanup removes only the exact retired Wavefoundry-owned BAAI cache components. It runs before dashboard restart and lock removal. A cleanup failure retains the upgrade lock with `failed_phase=retired_model_cleanup`; rerun the cleanup phase after correcting the reported target. The flat `retired_model_cleanup_status`, `_removed`, `_absent`, `_unowned`, and `_failed` fields are the recovery authority. Dry-run reports `dry_run` with four empty result lists. The installed runner lists eligible component IDs in `retired_model_cleanup_planned`. Apply checks the active model set and the index epoch after reindexing. A rehearsal against a scratch checkout uses the same shared workstation cache.
 
 **Install assets:** the framework-side install assets are consolidated under `.wavefoundry/framework/install/`; where every install-related asset (templates, the release-notes install block, the format specs, the install-flow seeds) lives and the source → ship → provision role it plays is mapped in `docs/references/install-assets.md`. Each shipped format-spec template must stay byte-identical to its `docs/references/` canonical copy (guarded by `test_shipped_reference_docs.py`).
 

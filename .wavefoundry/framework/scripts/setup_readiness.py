@@ -618,7 +618,7 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
                 import mcp_tool_roster
                 import spec_tool_permissions
                 spec_pending = spec_tool_permissions.setup_pending(
-                    root, mcp_tool_extensions.stock_spec_routes(), mcp_tool_roster.MCP_RULE_PREFIX)
+                    root, mcp_tool_extensions.spec_permission_routes(), mcp_tool_roster.MCP_RULE_PREFIX)
             except (ImportError, OSError, ValueError) as exc:
                 result['limitations'].append(f'Renamed spec-tool permissions were not assessed: {exc}')
             else:

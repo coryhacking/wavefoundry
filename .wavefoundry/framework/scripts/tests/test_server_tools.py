@@ -7482,6 +7482,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "from_version": "1.15.9",
             "to_version": "1.16.0",
             "retired_model_cleanup_status": "dry_run",
+            "retired_model_cleanup_planned": ["coreml:default:retired", "/private/path", "coreml:default:retired|extra"],
             "retired_model_cleanup_removed": [],
             "retired_model_cleanup_absent": [],
             "retired_model_cleanup_unowned": [],
@@ -7498,6 +7499,8 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             {key: result["data"]["summary"][key] for key in self.srv.RETIRED_MODEL_CLEANUP_KEYS},
             {key: summary[key] for key in self.srv.RETIRED_MODEL_CLEANUP_KEYS},
         )
+
+        self.assertEqual(result["data"]["summary"]["retired_model_cleanup_planned"], ["coreml:default:retired"])
 
     def test_invalid_mode_returns_error(self):
         """Unknown mode returns error with valid_modes list."""

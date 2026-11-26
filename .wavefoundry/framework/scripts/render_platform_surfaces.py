@@ -2178,7 +2178,7 @@ def selected_permission_rules(settings: dict, *, root=None) -> tuple[str, ...]:
     if root is None:
         return rules
     from spec_tool_permissions import assess
-    routes = roster.mcp_tool_extensions.stock_spec_routes()
+    routes = roster.mcp_tool_extensions.spec_permission_routes()
     held, manual = assess(root, routes, roster.MCP_RULE_PREFIX)
     permissions = settings.get("permissions", {})
     allow = permissions.get("allow", []) if isinstance(permissions, dict) else []
@@ -2215,7 +2215,7 @@ def migrate_spec_tool_permissions(repo_root: Path) -> dict:
         import spec_tool_permissions
 
         roster = _load_tool_roster()
-        routes = roster.mcp_tool_extensions.stock_spec_routes()
+        routes = roster.mcp_tool_extensions.spec_permission_routes()
         if not routes:
             return {}
 

@@ -313,7 +313,7 @@ def _review_held(root, routes, held):
 def acknowledge(argv):
     import argparse
     import mcp_tool_extensions
-    routes = mcp_tool_extensions.stock_spec_routes()
+    routes = mcp_tool_extensions.spec_permission_routes()
     parser = argparse.ArgumentParser(description="Record the operator's review of effective host permissions.")
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--tool", choices=sorted(routes.values()), required=True)

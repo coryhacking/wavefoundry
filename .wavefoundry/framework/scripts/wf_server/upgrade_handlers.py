@@ -55,7 +55,7 @@ _RETIRED_MODEL_CLEANUP_ITEM_RE = re.compile(
 
 
 def _project_retired_model_cleanup_fields(value: object) -> dict[str, Any]:
-    """Project the five terminal fields onto their path-free public vocabulary."""
+    """Keep path-free cleanup results and any dry-run plan."""
     projected: dict[str, Any] = {
         "retired_model_cleanup_status": "not_applicable",
         "retired_model_cleanup_removed": [],
@@ -68,6 +68,12 @@ def _project_retired_model_cleanup_fields(value: object) -> dict[str, Any]:
     status = value.get("retired_model_cleanup_status")
     if status in {"not_applicable", "dry_run", "complete", "failed"}:
         projected["retired_model_cleanup_status"] = status
+    if status == "dry_run" and "retired_model_cleanup_planned" in value:
+        planned = value["retired_model_cleanup_planned"]
+        projected["retired_model_cleanup_planned"] = sorted({
+            item for item in planned
+            if isinstance(item, str) and _RETIRED_MODEL_CLEANUP_ITEM_RE.fullmatch(item)
+        }) if isinstance(planned, list) else []
     for key in RETIRED_MODEL_CLEANUP_KEYS[1:]:
         items = value.get(key)
         if not isinstance(items, list):
@@ -890,10 +896,7 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
             summary = data.get("summary")
             if isinstance(summary, Mapping):
                 data["summary"] = {
-                    **{
-                        key: summary.get(key)
-                        for key in RETIRED_MODEL_CLEANUP_KEYS
-                    },
+                    **_project_retired_model_cleanup_fields(summary),
                     **_compact_delivery_coverage(summary),
                     "other_fields_omitted_from_response": True,
                     "reason": "upgrade response envelope cap",

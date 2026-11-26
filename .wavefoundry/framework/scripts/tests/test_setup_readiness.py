@@ -827,6 +827,16 @@ class SpecToolReadinessTests(unittest.TestCase):
                 render_platform_surfaces.migrate_spec_tool_permissions(self.root)  # what wf setup runs
             self.assertEqual(self.spec_reason(self.assess()), [])
 
+    def test_aliased_spec_name_reports_the_verification_it_needs(self):
+        from declaration_support import base_declaration
+        overrides = {"distribution_tools": ("wf_close_change",)}
+        for aliases, expected in (({"wf_close_spec": "wf_close_change"}, True), ({}, False)):
+            with self.subTest(aliases=aliases), base_declaration(
+                    EXTENSION_MODULES=("distribution_tools",), EXTENSION_OVERRIDES=overrides,
+                    EXTENSION_TOOL_ALIASES=aliases):
+                [reason] = self.spec_reason(self.assess())
+                self.assertEqual("wf_close_spec" in reason["tools"], expected)
+
     def test_a_route_setup_cannot_change_is_not_reported(self):
         (self.root / '.claude/settings.local.json').write_text(json.dumps(
             {'permissions': {'deny': ['mcp__wavefoundry__wf_*_change']}}), encoding='utf-8')

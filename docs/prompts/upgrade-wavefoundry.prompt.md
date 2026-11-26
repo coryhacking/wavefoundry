@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-24
+Last verified: 2026-11-26
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -47,7 +47,7 @@ For example, replace `wf_get_change(change_id="abcde")` with `wf_get_spec(spec_i
 
 New stock specs and new admission entries use `Spec ID:` and `Spec Status:`. Preserve a legacy record’s `Change ID:` and `Change Status:` when updating it. A wave may contain both generations. Use the project’s declared labels for a custom profile. The upgrade preserves existing identifier values, closed history and review evidence. Review project-owned scripts that call the previous names. A distribution can retain an alias or wrapper with its established schema. Check the served schema before changing those callers.
 
-Upgrade and `wf setup` carry the permissions over. In the repository's `.claude/settings.json`, `.claude/settings.local.json` and `.codex/config.toml`, each exact rule for a previous tool gets the same rule, constraint included, for its replacement. The previous rules stay. Upgrade and setup then read the user-level Claude and Codex settings and the enterprise managed settings without changing them, and record a verification for this checkout for each replacement that no readable layer still restricts. Restart the MCP host afterwards. A teammate who pulls the upgraded repository runs `wf setup`, which does the same on their machine. Until then, setup readiness reports the withheld tools with `wf setup` as the remedy.
+Upgrade and `wf setup` carry the permissions over. In the repository's `.claude/settings.json`, `.claude/settings.local.json` and `.codex/config.toml`, each exact rule for a previous tool gets the same rule, constraint included, for its replacement. The previous rules stay. If a distribution aliases the replacement name to the previous tool, the alias inherits the same rules and stays withheld until verification. Upgrade and setup then read the user-level Claude and Codex settings and the enterprise managed settings without changing them, and record a verification for this checkout for each replacement that no readable layer still restricts. Restart the MCP host afterwards. A teammate who pulls the upgraded repository runs `wf setup`, which does the same on their machine. Until then, setup readiness reports the withheld tools with `wf setup` as the remedy.
 
 When a user-level or enterprise layer denies or asks for a previous tool, the replacement stays withheld. The summary names the file and the rule to add there, and the operator applies it. A replacement also stays withheld when a pattern rule names the previous tool but not the replacement, when a settings file cannot be parsed, or when Cursor settings name the previous tool. Upgrade cannot inspect MDM profiles, the Windows registry, server-managed settings or host launch flags. A tool can appear in MCP even when those layers still restrict only its old name. If you manage such a policy, apply the same restrictions to the new names and verify the effective rules in the host before use. Resolve the rule in the layer that owns it, then record the review for that tool from the target checkout, for example `wf upgrade spec-permissions --root . --tool wf_get_spec --confirm-effective-host-rules`, and restart the MCP host.
 

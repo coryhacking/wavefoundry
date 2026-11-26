@@ -918,6 +918,8 @@ class DryRunTests(unittest.TestCase):
         self.mod._close_log()
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
+        self.enterContext(patch.object(Path, "home", return_value=self.root / "home"))
+        self.enterContext(patch.dict(os.environ, {"FASTEMBED_CACHE_PATH": "", "WAVEFOUNDRY_ONNX_SRC_CACHE": ""}))
         # Minimal repo structure
         (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
         # Isolate from real ~/.wavefoundry/dist/ AND ~/Downloads/ so tests are not polluted by
@@ -950,6 +952,94 @@ class DryRunTests(unittest.TestCase):
         finally:
             self.mod._log = orig_log
         return "\n".join(lines)
+
+    def test_retired_model_preview_matches_apply_on_a_copy(self):
+        # Both the anchored and native-Windows fallback paths share the ownership preflight.
+        key = self.mod._RETIRED_MODEL_ALLOWLIST["fastembed"][0]
+        other = self.mod._RETIRED_MODEL_ALLOWLIST["fastembed"][1]
+        home = self.root / "preview-home"
+        cache = home / ".wavefoundry" / "cache"
+        external = self.root / "external"
+        external.mkdir()
+        (external / "keep").write_bytes(b"shared")
+        cache_root = cache / "fastembed"
+        (cache_root / key).mkdir(parents=True)
+        (cache_root / key / "payload").write_bytes(b"retired")
+        (cache_root / other).symlink_to(external, target_is_directory=True)
+        (cache_root / "keep").write_bytes(b"unlisted")
+        # A regular file named like a component cannot be removed as a component.
+        (cache_root / self.mod._RETIRED_MODEL_ALLOWLIST["fastembed"][2]).touch()
+        onnx_key = self.mod._RETIRED_MODEL_ALLOWLIST["clean-onnx"][0]
+        (cache_root / onnx_key).mkdir()
+        (cache / "onnx-src").symlink_to(cache_root, target_is_directory=True)
+        custom = home / "custom"
+        custom.mkdir()
+        (custom / key).symlink_to(external, target_is_directory=True)
+        (self.root / ".wavefoundry/framework/VERSION").write_text("1.54.0")
+        expected = sorted([f"fastembed:default:{key}", f"fastembed:default:{other}"])
+        with patch.object(Path, "home", return_value=home), patch.dict(
+            os.environ, {"FASTEMBED_CACHE_PATH": str(custom), "WAVEFOUNDRY_ONNX_SRC_CACHE": ""}
+        ):
+            lines, summary = self._dry_lines()
+        self.assertEqual(summary["retired_model_cleanup_planned"], expected)
+        self.assertEqual(summary["retired_model_cleanup_status"], "dry_run")
+        self.assertEqual(summary[self.mod.SUMMARY_SCHEMA_KEY], 1)
+        for field in self.mod._RETIRED_MODEL_CLEANUP_KEYS[1:]:
+            self.assertEqual(summary[field], [])
+        self.assertIn("installed runner", " ".join(lines[:-1]))
+        self.assertIn("index epoch", " ".join(lines[:-1]))
+        for target_id in expected:
+            self.assertIn(target_id, " ".join(lines[:-1]))
+        self.assertEqual((cache_root / key / "payload").read_bytes(), b"retired")
+        self.assertEqual((cache_root / "keep").read_bytes(), b"unlisted")
+        self.assertTrue((cache_root / other).is_symlink())
+        self.assertTrue((custom / key).is_symlink())
+        self.assertTrue((cache / "onnx-src").is_symlink())
+        self.assertEqual((external / "keep").read_bytes(), b"shared")
+
+        for fallback in (False, True):
+            with self.subTest(fallback=fallback), contextlib.ExitStack() as stack:
+                copy = self.root / f"apply-{fallback}"
+                shutil.copytree(home, copy, symlinks=True)
+                stack.enter_context(patch.object(Path, "home", return_value=copy))
+                stack.enter_context(patch.dict(os.environ, {
+                    "FASTEMBED_CACHE_PATH": str(copy / "custom"), "WAVEFOUNDRY_ONNX_SRC_CACHE": "",
+                }))
+                stack.enter_context(patch.object(self.mod, "_verified_active_model_authority", return_value=("d", "c", "fp")))
+                stack.enter_context(patch.object(self.mod, "_semantic_epoch_matches_active_models", return_value=True))
+                if fallback:
+                    stack.enter_context(patch.object(os, "supports_dir_fd", set()))
+                result = self.mod._run_retired_model_cleanup(self.root, "1.54.0")
+                self.assertEqual(result["retired_model_cleanup_removed"], expected)
+                self.assertIn(f"clean-onnx:default:{onnx_key}", result["retired_model_cleanup_unowned"])
+                self.assertIn(f"fastembed:custom:{key}", result["retired_model_cleanup_unowned"])
+                self.assertEqual((external / "keep").read_bytes(), b"shared")
+                self.assertNotIn("retired_model_cleanup_planned", result)
+
+    def test_retired_model_preview_skips_malformed_custom_marker(self):
+        key = self.mod._RETIRED_MODEL_ALLOWLIST["fastembed"][0]
+        custom = self.root / "custom"
+        (custom / key).mkdir(parents=True)
+        marker = custom / key / ".wavefoundry-model-bundle.json"
+        (self.root / ".wavefoundry/framework/VERSION").write_text("1.54.0")
+        bad_path = {
+            "model_set_version": self.mod._RETIRED_V1_MODEL_SET_VERSION,
+            "fingerprint": self.mod._RETIRED_V1_FINGERPRINT,
+            "files": {"": "hash"},
+        }
+        for value in (None, [], bad_path):
+            with self.subTest(value=value), patch.dict(os.environ, {"FASTEMBED_CACHE_PATH": str(custom)}):
+                marker.write_text(json.dumps(value))
+                _, summary = self._dry_lines()
+                self.assertEqual(summary["retired_model_cleanup_planned"], [])
+                self.assertEqual(json.loads(marker.read_text()), value)
+
+    def test_retired_model_preview_ineligible_version_skips_cache_inspection(self):
+        (self.root / ".wavefoundry/framework/VERSION").write_text("1.15.9")
+        with patch.object(self.mod, "_retired_cleanup_targets", side_effect=AssertionError("cache inspected")):
+            lines, summary = self._dry_lines()
+        self.assertEqual(summary["retired_model_cleanup_planned"], [])
+        self.assertIn("cleanup will not run for this target version", " ".join(lines[:-1]))
 
     def test_archive_discovery_searches_only_fixture_roots(self):
         visited = []

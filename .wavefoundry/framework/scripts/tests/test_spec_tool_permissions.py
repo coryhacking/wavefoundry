@@ -57,6 +57,41 @@ class SpecPermissionTests(unittest.TestCase):
     def holds(self):
         return roster.spec_permission_holds(self.root)
 
+    def test_rules_follow_declared_rename_in_render_and_migration(self):
+        for old, new in (("wf_close_change", "wf_close_spec"), ("wf_remove_change", "wf_remove_spec")):
+            with self.subTest(new=new), base_declaration(
+                    EXTENSION_MODULES=("delivery_tools",), EXTENSION_OVERRIDES={"delivery_tools": (old,)},
+                    EXTENSION_TOOL_ALIASES={new: old}):
+                path = self.root / CLAUDE_PROJECT
+                path.parent.mkdir(exist_ok=True)
+                path.write_text(json.dumps({"permissions": {
+                    "deny": [P + old], "ask": [P + old + "(change_id:abcde)"]}}))
+                self.assertIn(new, roster.spec_permission_holds(self.root))
+                surfaces.migrate_spec_tool_permissions(self.root)
+                surfaces.render_claude_permissions(self.root)
+                rules = json.loads(path.read_text())["permissions"]
+                for tier, suffix in (("deny", ""), ("ask", "(change_id:abcde)")):
+                    self.assertIn(P + old + suffix, rules[tier])
+                    self.assertIn(P + new + suffix, rules[tier])
+
+    def test_no_alias_matches_old_permission_results_and_render_bytes(self):
+        with base_declaration(EXTENSION_MODULES=("delivery_tools",),
+                              EXTENSION_OVERRIDES={"delivery_tools": ("wf_close_change",)}):
+            extension = surfaces._load_tool_roster().mcp_tool_extensions
+            def observe(root):
+                (root / ".wavefoundry/framework").mkdir(parents=True)
+                path = root / CLAUDE_PROJECT
+                path.parent.mkdir()
+                path.write_text(json.dumps({"permissions": {"deny": [self.old]}}))
+                pending = stp.setup_pending(root, extension.spec_permission_routes(), self.prefix)
+                report = surfaces.migrate_spec_tool_permissions(root)
+                surfaces.render_claude_permissions(root)
+                return pending, report, path.read_bytes()
+
+            actual = observe(self.root / "current")
+            with mock.patch.object(extension, "spec_permission_routes", extension.stock_spec_routes):
+                self.assertEqual(actual, observe(self.root / "stock"))
+
     def test_project_ask_and_personal_deny_must_each_match(self):
         self.write(CLAUDE_PROJECT, {"permissions": {"ask": [self.old, self.new]}})
         private = self.write(CLAUDE_LOCAL, {"permissions": {"deny": [self.old]}})
@@ -512,6 +547,7 @@ class SpecPermissionGuidanceTests(unittest.TestCase):
         "Upgrade and `wf setup` carry the permissions over.",
         "each exact rule for a previous tool gets the same rule, constraint included, for its replacement.",
         "read the user-level Claude and Codex settings and the enterprise managed settings without changing them",
+        "the alias inherits the same rules and stays withheld until verification.",
         "A teammate who pulls the upgraded repository runs `wf setup`",
         "The summary names the file and the rule to add there, and the operator applies it.",
         "Upgrade cannot inspect MDM profiles, the Windows registry, server-managed settings or host launch flags.",

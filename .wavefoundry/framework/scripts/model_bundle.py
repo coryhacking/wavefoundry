@@ -17,6 +17,7 @@ import stat
 import tempfile
 import zipfile
 import embedded_model_bundle as envelope
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -277,6 +278,47 @@ def load_canonical_verification_manifest(manifest_path: Path | None = None) -> d
     return manifest
 
 
+def _manifest_differences(built: dict[str, Any], canonical: dict[str, Any]) -> Iterator[str]:
+    """Explain a rejected build using field names and manifest paths only."""
+    missing = object()
+
+    def changed_fields(actual: dict, expected: dict, exclude: str) -> Iterator[str]:
+        for field in sorted((actual.keys() | expected.keys()) - {exclude}):
+            if actual.get(field, missing) != expected.get(field, missing):
+                yield field
+
+    for field in changed_fields(built, canonical, "components"):
+        yield f"{field} differs"
+
+    cache_components = {c["id"]: c for c in built["components"]}
+    expected_components = {c["id"]: c for c in canonical["components"]}
+    for component_id in sorted(cache_components.keys() | expected_components.keys()):
+        if component_id not in cache_components:
+            yield f"{component_id}: missing from the cache"
+            continue
+        if component_id not in expected_components:
+            yield f"{component_id}: not in the canonical manifest"
+            continue
+        actual = cache_components[component_id]
+        expected = expected_components[component_id]
+        for field in changed_fields(actual, expected, "files"):
+            yield f"{component_id}: {field} differs"
+
+        cache_files = {entry["path"]: entry for entry in actual["files"]}
+        expected_files = {entry["path"]: entry for entry in expected["files"]}
+        for path in sorted(cache_files.keys() | expected_files.keys()):
+            # Keep a filename with control characters on one diagnostic line.
+            label = f"{component_id}: {json.dumps(path, ensure_ascii=True)[1:-1]}"
+            if path not in cache_files:
+                yield f"{label} missing from the cache"
+            elif path not in expected_files:
+                yield f"{label} not in the canonical manifest"
+            else:
+                for field in changed_fields(cache_files[path], expected_files[path], "path"):
+                    detail = "content digest" if field == "sha256" else field
+                    yield f"{label} {detail} differs"
+
+
 def build_bundle(
     output_dir: Path,
     *,
@@ -287,7 +329,17 @@ def build_bundle(
     canonical_manifest = load_canonical_verification_manifest()
     built_manifest = _manifest_from_cache(root)
     if built_manifest != canonical_manifest:
-        raise RuntimeError("warmed model cache does not match the canonical verification manifest")
+        details = []
+        count = 0
+        for count, difference in enumerate(_manifest_differences(built_manifest, canonical_manifest), 1):
+            if count <= 20:
+                details.append(difference)
+        if count > 20:
+            details.append(f"and {count - 20} more")
+        if not count:
+            details.append("manifests differ only in order")
+        message = "warmed model cache does not match the canonical verification manifest"
+        raise RuntimeError("\n".join([message, *details]))
     payload: list[tuple[str, Path, str]] = []
     for component_id, target, directory, license_id, upstream in COMPONENTS:
         source = root / target / directory

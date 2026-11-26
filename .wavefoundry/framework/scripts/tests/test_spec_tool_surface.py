@@ -188,3 +188,78 @@ class SpecToolSurfaceTests(unittest.TestCase):
         made = self.call("wf_new_spec", slug="held-route")
         self.assertNotIn("wf_get_spec", made["next_tools"])
         self.assertIn("settings.json", made["usage"])
+
+
+class AliasedSpecPermissionTests(unittest.TestCase):
+    """Exercise a distribution's override and its public alias across host policy and MCP."""
+
+    def setUp(self):
+        from server_tools_support import _make_repo, load_server
+        self.server = load_server()
+        import mcp_tool_roster
+        self.roster = mcp_tool_roster
+        from test_spec_tool_permissions import isolate_host_policy
+        isolate_host_policy(self)
+        self.root = _make_repo(Path(self.enterContext(tempfile.TemporaryDirectory())))
+        (self.root / ".wavefoundry/framework/scripts").mkdir(parents=True, exist_ok=True)
+        self.handler = self.server.build_handler(self.root)
+        self.addCleanup(self.handler.close)
+
+    def declaration(self, old, new=None):
+        aliases = {new: old} if new else {}
+        return base_declaration(
+            EXTENSION_MODULES=("delivery_tools",),
+            EXTENSION_OVERRIDES={"delivery_tools": (old,)},
+            EXTENSION_TOOL_ALIASES=aliases,
+        )
+
+    def register(self, old):
+        from mcp.server.fastmcp import FastMCP
+        from types import SimpleNamespace
+        from unittest import mock
+
+        def register_override(mcp, get_handler):
+            @mcp.tool(name=old)
+            def current(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs):
+                return {"status": "ok", "next_tools": [old], "data": {"id": change_id}}
+
+        surface = FastMCP("permission-fixture")
+        module = SimpleNamespace(register=register_override)
+        with mock.patch.object(self.server, "_load_extension_module",
+                               return_value=(module, self.root / "delivery_tools.py", "a" * 64)):
+            self.server.register_mcp_surface(surface, lambda: self.handler)
+        return surface._tool_manager
+
+    def test_unverified_alias_is_withheld_with_recovery_and_hints_use_served_name(self):
+        import asyncio
+        import spec_tool_permissions as stp
+        import upgrade_wavefoundry
+        old, new = "wf_close_change", "wf_close_spec"
+        with self.declaration(old, new):
+            self.assertTrue(stp._requires_review(self.root))
+            remedy = self.roster.spec_permission_holds(self.root)[new]
+            self.assertIn(remedy, upgrade_wavefoundry._spec_tool_permission_summary(self.root)["spec_tool_permission_holds"])
+            manager = self.register(old)
+            self.assertNotIn(new, manager._tools)
+            self.assertEqual(self.server._EXTENSION_PROVENANCE["spec_tool_remedies"][new], remedy)
+            args = {"wave_id": "abcde", "change_id": "bcdef"}
+            result = asyncio.run(manager.call_tool(old, args))
+            self.assertIn(old, result["next_tools"], result)
+            routes = self.roster.mcp_tool_extensions.spec_permission_routes()
+            stp.record_verification(self.root, routes, self.roster.MCP_RULE_PREFIX)
+            self.assertFalse(self.roster.spec_permission_holds(self.root))
+            manager = self.register(old)
+            self.assertIn("change_id", manager._tools[new].parameters["properties"])
+            self.assertEqual(asyncio.run(manager.call_tool(new, args))["data"]["id"], "bcdef")
+
+    def test_unaliased_override_keeps_stock_permission_behavior(self):
+        old, new = "wf_close_change", "wf_close_spec"
+        with self.declaration(old):
+            ext = self.roster.mcp_tool_extensions
+            self.assertEqual(ext.spec_permission_routes(), ext.stock_spec_routes())
+            self.assertNotIn(new, self.roster.spec_permission_holds(self.root))
+            served = sorted(self.register(old)._tools)
+            self.assertNotIn(new, served)
+            from unittest.mock import patch
+            with patch.object(ext, "spec_permission_routes", ext.stock_spec_routes):
+                self.assertEqual(served, sorted(self.register(old)._tools))

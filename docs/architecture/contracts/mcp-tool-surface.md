@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-25
+Last verified: 2026-11-26
 
 Behavioral contract for the Wavefoundry local MCP server. This behavior contract covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -584,7 +584,9 @@ where a segment ending in `[]` means each element of the list at that key (for e
 no value moves to another level. The echo renames and `response_keys` apply in one walk over the
 canonical structure after the call: at each object a declared parent path reaches, its renames
 apply in one simultaneous pass in the same key positions (a swap does not chain), and at the top
-level the echo renames and the single-segment paths form that one pass. A parent rename and a
+level the echo renames and the single-segment paths form that one pass. With
+`{"rename": {"spec_id": "change_id"}}`, the alias already returns the echoed top-level
+`change_id` as `spec_id`. Omit the path `change_id` from `response_keys`. A parent rename and a
 child rename on the same branch both apply. A path whose intermediate value is absent, or is not a
 dict (for a plain segment) or a list (for a `[]` segment), is skipped for that object, and a list
 element that is not a dict is skipped. When an object's renamed keys would hold one key twice,
@@ -3186,7 +3188,9 @@ after correcting the named target. A retry clears the failure marker only on
 a `complete` result; a retry whose authority revalidation refuses
 (`not_applicable`) keeps the failure marker and the lock's preserved partial
 lists and exits nonzero. Dry-run reports status `dry_run` and four
-empty lists. Cleanup is exact-allowlist, flat-key-only (a separator- or
+empty result lists. The CLI preview also lists eligible component IDs from the installed
+runner’s allowlist in `retired_model_cleanup_planned`. At apply, cleanup checks
+the active model set and the index epoch after reindexing. Cleanup is exact-allowlist, flat-key-only (a separator- or
 traversal-shaped component key is refused as unowned before any filesystem
 access), path-contained, symlink-no-follow,
 custom-marker-gated, and fail-closed on an incomplete epoch or active retired

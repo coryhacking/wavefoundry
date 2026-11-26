@@ -148,7 +148,7 @@ def _retired_model_cleanup_result(status: str = "not_applicable") -> dict[str, A
 
 
 def _retired_model_cleanup_from_mapping(value: object) -> dict[str, Any]:
-    """Project the five public fields without leaking paths or exceptions."""
+    """Read cleanup results and any dry-run plan from a summary."""
     result = _retired_model_cleanup_result()
     if not isinstance(value, dict):
         return result
@@ -159,6 +159,17 @@ def _retired_model_cleanup_from_mapping(value: object) -> dict[str, Any]:
         items = value.get(key)
         if isinstance(items, list):
             result[key] = sorted({str(item) for item in items})
+    if status == "dry_run" and "retired_model_cleanup_planned" in value:
+        planned = value["retired_model_cleanup_planned"]
+        allowed = {
+            f"{kind}:{scope}:{component}"
+            for kind, components in _RETIRED_MODEL_ALLOWLIST.items()
+            for scope in ("default", "custom")
+            for component in components
+        }
+        result["retired_model_cleanup_planned"] = sorted({
+            item for item in planned if isinstance(item, str) and item in allowed
+        }) if isinstance(planned, list) else []
     return result
 
 # Wave 1u44o: the delegated primary-phase summary contract (old-calls-new). These pins are a
@@ -1841,6 +1852,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
                 _log("  no planned actions (dry-run produced no preview log)")
             _log("── End migration preview ──")
 
+    retired_model_cleanup = _preview_retired_model_cleanup(to_version)
     _log("\n── End Dry Run ──────────────────────────────────────────────────────────")
     if seed_preview_log:
         preview_logs.append(seed_preview_log)
@@ -1864,7 +1876,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
         failed_phase=None,
         reconciliation=[],
         lifecycle_baseline_drift=_LIFECYCLE_BASELINE_PLAN_FINDINGS.get((str(root), str(zip_path))),
-        retired_model_cleanup=_retired_model_cleanup_result("dry_run"),
+        retired_model_cleanup=retired_model_cleanup,
     )
     dry_summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
     # Wave 200ey (200ev): additive, dry-run only; the schema version stays 1.
@@ -3480,7 +3492,9 @@ def _legacy_custom_component_owned(component: Path) -> bool:
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError):
         return False
-    files = marker.get("files") if isinstance(marker, dict) else None
+    if not isinstance(marker, dict):
+        return False
+    files = marker.get("files")
     if (
         marker.get("model_set_version") != _RETIRED_V1_MODEL_SET_VERSION
         or marker.get("fingerprint") != _RETIRED_V1_FINGERPRINT
@@ -3496,6 +3510,7 @@ def _legacy_custom_component_owned(component: Path) -> bool:
             or not isinstance(expected_hash, str)
             or Path(relative).is_absolute()
             or ".." in Path(relative).parts
+            or not Path(relative).parts
             or Path(relative).parts[0] not in {"refs", "snapshots"}
         ):
             return False
@@ -3643,9 +3658,10 @@ def _remove_retired_component_no_follow(target: Path) -> str:
     return "removed"
 
 
-def _remove_retired_component(cache_root: Path, component: str, custom: bool,
-                              *, ownership_root: Path | None = None) -> str:
-    """Return removed/absent/unowned/failed without exposing filesystem data."""
+def _inspect_retired_component(
+    cache_root: Path, component: str, custom: bool, *, ownership_root: Path | None = None,
+) -> str | tuple[os.stat_result, os.stat_result]:
+    """Return a refusal or the non-followed identities that removal must recheck."""
     # 1v0r0 repair (F5): allowlisted component keys are flat directory names.
     # Refuse any separator- or traversal-shaped key BEFORE the first
     # filesystem access; a non-flat key could ride the dir_fd anchor to
@@ -3687,8 +3703,41 @@ def _remove_retired_component(cache_root: Path, component: str, custom: bool,
         return "absent"
     except (OSError, ValueError):
         return "unowned"
+    if not (_is_link_or_reparse(target_stat) or stat.S_ISDIR(target_stat.st_mode)):
+        return "unowned"
     if custom and not _legacy_custom_component_owned(target):
         return "unowned"
+    return root_stat, target_stat
+
+
+def _preview_retired_model_cleanup(to_version: object) -> dict[str, Any]:
+    result = _retired_model_cleanup_result("dry_run")
+    planned: list[str] = []
+    result["retired_model_cleanup_planned"] = planned
+    if not _cleanup_version_eligible(to_version):
+        _log("Retired model cleanup will not run for this target version.")
+        return result
+    for target_id, scope, cache_root, component in _retired_cleanup_targets():
+        check = _inspect_retired_component(cache_root, component, scope == "custom")
+        if not isinstance(check, str):
+            planned.append(target_id)
+    _log("Retired models eligible for shared-cache cleanup under the installed runner's allowlist:")
+    for target_id in planned:
+        _log(f"  - {target_id}")
+    if not planned:
+        _log("  (none)")
+    _log("Apply checks the active model set and index epoch after reindexing.")
+    return result
+
+
+def _remove_retired_component(cache_root: Path, component: str, custom: bool,
+                              *, ownership_root: Path | None = None) -> str:
+    """Return removed/absent/unowned/failed without exposing filesystem data."""
+    check = _inspect_retired_component(cache_root, component, custom, ownership_root=ownership_root)
+    if isinstance(check, str):
+        return check
+    root_stat, target_stat = check
+    target = cache_root / component
     root_fd: int | None = None
     try:
         # The cache root is mutable operator-controlled state. Anchor the
@@ -4855,7 +4904,7 @@ def _spec_tool_permission_summary(root):
         return {}
     import mcp_tool_roster
     import spec_tool_permissions
-    routes = mcp_tool_roster.mcp_tool_extensions.stock_spec_routes()
+    routes = mcp_tool_roster.mcp_tool_extensions.spec_permission_routes()
     layers = spec_tool_permissions.assess_layers(root, routes, mcp_tool_roster.MCP_RULE_PREFIX)
     # Wave 24buu (24ax3): the Phase 1 render child migrates the repository
     # rules and records the verification; this reports what remains.

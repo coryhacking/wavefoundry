@@ -256,8 +256,8 @@ def allow_rules(include_write: bool = False, include_low_risk: bool = False) -> 
 
 
 def spec_permission_holds(root, routes=None):
-    """Return project host-policy conflicts for otherwise eligible new stock routes."""
+    """Return project host-policy conflicts for renamed tools served through stock routes or distribution aliases."""
     from spec_tool_permissions import assess
     if routes is None:
-        routes = mcp_tool_extensions.stock_spec_routes()
+        routes = mcp_tool_extensions.spec_permission_routes()
     return assess(root, routes, MCP_RULE_PREFIX)[0]

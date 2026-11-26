@@ -334,7 +334,7 @@ def _live_markdown_retired_errors(root: Path) -> tuple[str, ...]:
                     relative,
                     text,
                     "retired lifecycle prose outside a registered carrier "
-                    "(report-only; automatic rewrite is refused)",
+                    "blocks the upgrade until the listed prose is edited (automatic rewrite is refused)",
                 )
             )
     return tuple(errors)
