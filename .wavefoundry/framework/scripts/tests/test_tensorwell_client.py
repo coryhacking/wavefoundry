@@ -907,6 +907,49 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(requests[1]["input"], ["Represent this sentence for searching relevant passages: literal"])
         self.assertEqual(tc.status_snapshot()["backend"], "tensorwell")
 
+    def test_evaluation_queries_keep_scalar_role_order_and_deadline_across_requests(self):
+        self.fake_ready()
+        limits = dict(capabilities()["limits"], max_items=2)
+        self.reply = lambda path, body: (
+            {"instance_id": INSTANCE, **capabilities(limits=limits, timeouts={"max_ms": 1000})}
+            if path == "/v1/capabilities" else None)
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        queries = ["Represent this sentence for searching relevant passages: literal", "second", "third"]
+
+        def embeddings(path, body):
+            rows = [{"index": i, "embedding": [float(queries.index(text))] + [0.] * 383}
+                    for i, text in enumerate(body["input"])]
+            return {"instance_id": INSTANCE, "model": descriptor("embedding"), "data": rows}
+
+        self.reply = embeddings
+        reference = [model.embed_query(text) for text in queries]
+        self.requests.clear()
+        with patch.object(tc, "_request", wraps=tc._request) as send:
+            self.assertEqual(model.embed_evaluation_queries(queries), reference)
+        bodies = [body for path, body in self.requests if path == "/v1/embeddings"]
+        self.assertEqual([b["input"] for b in bodies], [queries[:2], queries[2:]])
+        self.assertTrue(all((b["role"], b["workload"], b["timeout_ms"]) ==
+                            ("query", "interactive", 1000) for b in bodies))
+        self.assertEqual(len({call.kwargs["operation_deadline"] for call in send.call_args_list}), 1)
+        with patch.object(tc, "_request", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                model.embed_evaluation_queries(queries)
+        self.assertFalse(hasattr(tc._attempt_context, "token"))
+
+    def test_evaluation_batch_rejects_reordered_or_incomplete_provider_rows(self):
+        self.fake_ready()
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        rows = [{"index": i, "embedding": [float(i)] * 384} for i in range(2)]
+        for invalid in (rows[::-1], rows[:1]):
+            with self.subTest(row_indices=[row["index"] for row in invalid]):
+                self.reply = lambda path, body: {
+                    "instance_id": INSTANCE, "model": descriptor("embedding"), "data": invalid}
+                with self.assertRaises(tc.TensorwellUnavailable) as failure:
+                    model.embed_evaluation_queries(["first", "second"])
+                self.assertEqual(failure.exception.reason, "unexpected_response")
+                attempt = tc.inference_status_snapshot()["roles"]["query_embedding"]["last_attempt"]
+                self.assertEqual(attempt["caller_outcome"], "degraded")
+
     def test_pair_rejects_partial_identity_dimensions_provider_precision(self):
         self.fake_ready()
         original = copy.deepcopy(self.models)

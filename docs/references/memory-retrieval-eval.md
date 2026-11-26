@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-23
+Last verified: 2026-11-26
 
 ## Purpose
 
@@ -83,7 +83,19 @@ its own id.
   `hybrid_no_rerank` (production's fusion before the reranker screen) show their
   top 5. `production` runs `memory_search_response` with the shared index.
   `full_context` shows everything ranked by memory id. `dense_summary_only` and
-  `dense_compact` are informational one-vector ablations of the embedded text.
+  `dense_compact` compare two ways to represent a memory. Each ranks its own
+  document vectors against the same query vector for that case. The evaluator
+  discards comparison vectors after use. Production search still runs its own
+  query so its results show the behavior an agent experiences.
+- **Comparison batching.** Tensorwell and direct full-precision Arctic S on
+  FastEmbed CPU use groups of up to eight queries by default. A qualified local
+  GPU uses the static model's native width of 32. The evaluator uses the same
+  device for the two comparison matrices and their queries. It honors a CPU
+  selection and falls back to direct CPU when GPU qualification fails.
+  Set `WAVEFOUNDRY_MEMORY_EVAL_BATCH_DIRECT=0` to run one comparison query
+  at a time on the selected local device. The batch-sensitive INT8 CPU adapter
+  always embeds one query at a time because neighboring inputs can change its
+  quantized vectors.
 - **Metrics.** Per split and arm: `recall_at_5`, `mrr`, pooled
   `precision_shown`, `false_show_rate` on null cases, `stale_shown_rate` on stale
   cases and `mean_shown`, each except `mean_shown` with a 95% cluster bootstrap

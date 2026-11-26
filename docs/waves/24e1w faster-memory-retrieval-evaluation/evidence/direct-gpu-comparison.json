@@ -1,0 +1,100 @@
+{
+  "model": "Snowflake/snowflake-arctic-embed-s",
+  "gpu": "CoreMLExecutionProvider",
+  "native_width": 32,
+  "case_count": 576,
+  "records": 153,
+  "cpu_scalar_seconds": 3.0988992910133675,
+  "gpu_batch_seconds": 9.74460224993527,
+  "gpu_query_cpu_matrix_vs_cpu_scalar": [
+    0,
+    0
+  ],
+  "both_gpu_vs_both_cpu": [
+    0,
+    0
+  ],
+  "gpu_scalar_seconds": 79.26292441703845,
+  "gpu_scalar_vs_gpu_batch": [
+    0,
+    0
+  ],
+  "gpu_scalar_vs_batch_cpu_matrix": [
+    0,
+    0
+  ],
+  "max_vector_delta_gpu_batch_vs_gpu_scalar": 0.0,
+  "minimum_cosine_cpu_vs_gpu": 0.9999998807907104,
+  "runs": [
+    {
+      "width": 8,
+      "seconds": 12.130528625100851,
+      "disagree": [
+        0,
+        0
+      ]
+    },
+    {
+      "width": 32,
+      "seconds": 3.07525491702836,
+      "disagree": [
+        0,
+        0
+      ]
+    },
+    {
+      "width": 32,
+      "seconds": 2.9027152919443324,
+      "disagree": [
+        0,
+        0
+      ]
+    },
+    {
+      "width": 8,
+      "seconds": 12.693783166934736,
+      "disagree": [
+        0,
+        0
+      ]
+    }
+  ],
+  "partial": {
+    "count": 35,
+    "groups": [
+      32,
+      3
+    ],
+    "rank_mismatches": [
+      0,
+      0
+    ],
+    "max_vector_difference": 0.0
+  },
+  "measurement": "Warm query stage on one macOS Apple silicon host. The existing crash-isolated model guard and CPU-time/wall-time offload predicate both passed. Native device occupancy and speed on CUDA, ROCm or DirectML were not measured.",
+  "controls": "The sandboxed child failed, and its parent returned no qualified GPU. The native host passed the unmodified guard. The qualified GPU graph is FP16 and requires 32 padded rows per ONNX invocation; the two comparisons retain their own document matrices.",
+  "query_set_version": 2,
+  "digest": "f46822136134ae634e4d975b3b864ed4c9135e428adf39a70e98e25a4a326a00",
+  "comparison_order": "First pass: CPU scalar, GPU groups of eight, GPU scalar. Separate width experiment: 8, 32, 32, 8.",
+  "included_phases": "Timings cover embedding the 576 prefixed queries after model construction, excluding GPU qualification, document embedding and production search.",
+  "normal_entry": {
+    "entry": "memory_eval.run_curated using current WaveIndex, a stratified 35-case frozen subset, local inference with Tensorwell disabled; direct batch environment unset for default, 0 for explicit scalar",
+    "comparison_rankings_and_full_report_identical": true,
+    "all_arms": 9,
+    "report_sha256": "7a88bea2821b013e89406432ec47bf93b8db8fc5ae7a7edfb71cca7a008ff3ba",
+    "observed_default_logical_group_sizes": [
+      32,
+      3
+    ],
+    "observed_default_native_onnx_query_widths": [
+      32,
+      32
+    ],
+    "observed_scalar_calls": 35,
+    "scalar_native_width": 32,
+    "real_qualified_production_queries_each": 35,
+    "default_first_seconds": 32.69157033308875,
+    "scalar_second_seconds": 27.409160332987085,
+    "limitation": "Whole-path runs were not counterbalanced. First default includes initial native guard, model initialization, and other warm-up, so this pair does not establish end-to-end elapsed-time improvement."
+  }
+}

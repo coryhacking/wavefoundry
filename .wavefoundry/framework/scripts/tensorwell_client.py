@@ -1051,6 +1051,17 @@ class _Adapter:
     def embed_query(self, text: str):
         return self._operation([text], role="query", workload="interactive")[0]
 
+    def embed_evaluation_queries(self, texts: list[str]):
+        """Measure a batch with the scalar query's role, prefix ownership and deadline."""
+        token = attempt("query_embedding", self)
+        try:
+            vectors = self._operation(texts, role="query", workload="interactive")
+        except BaseException:
+            finish_attempt(token, returned=False, accepted=False, reason="inference_failed")
+            raise
+        finish_attempt(token, returned=True, accepted=True)
+        return vectors
+
     def rerank(self, query: str, texts):
         return self._operation(texts, query=query, workload="interactive")
 

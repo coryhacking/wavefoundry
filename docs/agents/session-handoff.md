@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-25
+Last verified: 2026-11-26
 
 ## Current state
 
-Wave `24a51` closed after delivering spec `24a50`. The full suite passed 13,627 tests with 13 skips. The three profiles each passed all 336 memory tests. Delivery reviewers verified repair CR-D1. The operator signed off after the walkthrough. Close removed the wave’s work folder.
+Wave `24e1w` closed after delivering spec `24e1v`. Qualified Tensorwell and direct CPU comparisons batch eight queries, and qualified local GPU comparisons batch 32. Code and QA approved delivery. The framework suite passed 13,636 tests with 13 skips. Close retained the three benchmark records and removed the work folder.
 
 
 Open questions / deferred decisions:

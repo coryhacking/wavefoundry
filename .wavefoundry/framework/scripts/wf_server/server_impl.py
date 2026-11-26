@@ -2048,6 +2048,52 @@ class WaveIndex:
             self._embedders[model_name] = embedder
             return self._inference_selection("query_embedding", embedder, selection_reason)
 
+    def _evaluation_comparison_backend(self, model_name: str, embedder: Any, batch_size: int):
+        """Bind both experimental matrices and their queries to one evaluation backend."""
+        if getattr(embedder, "is_tensorwell", False) is True:
+            return embedder, getattr(embedder, "embed_evaluation_queries", None), batch_size
+        if (model_name != "Snowflake/snowflake-arctic-embed-s"
+                or type(embedder) is not getattr(sys.modules.get("fastembed"), "TextEmbedding", None)):
+            return embedder, None, 1
+        session = getattr(getattr(embedder, "model", None), "model", None)
+        providers = getattr(session, "get_providers", None)
+        if providers is None or providers() != ["CPUExecutionProvider"]:
+            return embedder, None, 1
+
+        import accel_embedder
+        versions = ((getattr(self, "_meta", None) or {}).get("project") or {}).get("model_versions") or {}
+        precision = self._indexer_module()._precision_class_from_version(versions.get("docs"))
+        if precision == "full":
+            gpu = accel_embedder.cached_evaluation_gpu(model_name)
+            if gpu is not None:
+                # Keep this model local to the evaluation. Search retains its own embedder.
+                embedder = gpu
+                batch_size = accel_embedder.STATIC_BATCH
+        if os.environ.get("WAVEFOUNDRY_MEMORY_EVAL_BATCH_DIRECT") == "0":
+            batch_size = 1
+        prefix = self._indexer_module().query_embedding_prefix(model_name)
+
+        def embed_queries(texts: list[str]):
+            import numpy as np
+            import tensorwell_client
+            token = tensorwell_client.attempt("query_embedding", embedder)
+            returned = False
+            try:
+                with self._offline_model_env():
+                    rows = list(embedder.embed([prefix + text for text in texts]))
+                returned = True
+                vectors = np.asarray(rows, dtype=np.float32)
+                if vectors.shape != (len(texts), 384) or not np.isfinite(vectors).all():
+                    raise ValueError("invalid local query batch")
+            except BaseException:
+                tensorwell_client.finish_attempt(token, returned=returned, accepted=False,
+                    reason="caller_rejected" if returned else "inference_failed")
+                raise
+            tensorwell_client.finish_attempt(token, returned=True, accepted=True)
+            return vectors
+
+        return embedder, embed_queries, batch_size
+
     def _embed_query(self, text: str, model_name: str) -> "np.ndarray":
         import numpy as np
         import tensorwell_client

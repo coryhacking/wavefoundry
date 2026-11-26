@@ -1,0 +1,149 @@
+{
+  "corpus": 153,
+  "end_to_end": [
+    {
+      "batch_histogram": {
+        "1": 111,
+        "153": 2
+      },
+      "elapsed": 42.64342704101,
+      "eligible_arms": 9,
+      "production": {
+        "model_relevance": 33
+      },
+      "report_matches_scalar": true,
+      "scored": 33,
+      "variant": "scalar"
+    },
+    {
+      "batch_histogram": {
+        "1": 79,
+        "153": 2,
+        "8": 4
+      },
+      "elapsed": 36.526100250077434,
+      "eligible_arms": 9,
+      "production": {
+        "model_relevance": 33
+      },
+      "report_matches_scalar": true,
+      "scored": 33,
+      "variant": "batch"
+    },
+    {
+      "batch_histogram": {
+        "1": 79,
+        "153": 2,
+        "8": 4
+      },
+      "elapsed": 38.3148761249613,
+      "eligible_arms": 9,
+      "production": {
+        "model_relevance": 33
+      },
+      "report_matches_scalar": true,
+      "scored": 33,
+      "variant": "batch"
+    },
+    {
+      "batch_histogram": {
+        "1": 111,
+        "153": 2
+      },
+      "elapsed": 38.782552125048824,
+      "eligible_arms": 9,
+      "production": {
+        "model_relevance": 33
+      },
+      "report_matches_scalar": true,
+      "scored": 33,
+      "variant": "scalar"
+    }
+  ],
+  "end_to_end_scope": "Select 11 evenly spaced cases within each frozen case type, then restore original case order (33 total). Run the normal evaluator with the real production handler and CPU memory reranker. Production, dense stream, and sanity retain their independent calls. A passing report_matches_scalar compares the entire public report and ordered per-case rankings of every eligible arm to the first direct scalar run.",
+  "limitations": "One Apple ARM host with FastEmbed on CPU. Whole-evaluation timing uses a stratified 33-case subset. No accelerator occupancy or direct GPU speed measured. No cache shared across variants beyond the warm model instance and operating-system caches. No CPU-int8 or third-party providers qualified by this measurement.",
+  "method": "Warm scalar and eight-input model calls. Execute each matched comparison serially on the same host in scalar, batch, batch, scalar order after all Tensorwell timings. No framework test suite ran concurrently. The stage uses all 576 frozen queries and both independent comparison matrices. Count actual ONNX session.run invocations by feed width. Compare each case's top-five ordered IDs across both matrices and the vectors' maximum absolute component difference. Retain only summary digests and counts.",
+  "model": "Snowflake/snowflake-arctic-embed-s",
+  "outcome": "Direct eight-row inference removed 504 ONNX calls across the frozen set. Both matrices retained exact per-case rankings. The 33-case mean end-to-end difference was 3.29 s, within the 3.86 s scalar run spread. The comparison-only mean saving across all 576 queries was 0.39 s.",
+  "providers": [
+    "CPUExecutionProvider"
+  ],
+  "query_digest": "f46822136134ae634e4d975b3b864ed4c9135e428adf39a70e98e25a4a326a00",
+  "runtime": "3.14.8",
+  "scope": "Local WaveIndex normal selector with Tensorwell explicitly disabled and Hugging Face offline. One cached Arctic S model instance with the published full-precision docs index, generation 6698. The observed onnxruntime session used the CPU.",
+  "stage": [
+    {
+      "batch_histogram": {
+        "1": 576
+      },
+      "elapsed": 3.236892041983083,
+      "max_abs_vector_error": 0.0,
+      "rank_mismatches": [
+        0,
+        0
+      ],
+      "ranking_digests": [
+        "874f048bf3e4471357d2489f83b33650f57b51a71756957d680d7bb9b7aaa603",
+        "1feb3549894a2d8dcec2ceb24b987ad61605562d74f0feb918a4a9bd7cf65874"
+      ],
+      "variant": "scalar"
+    },
+    {
+      "batch_histogram": {
+        "8": 72
+      },
+      "elapsed": 2.799027125001885,
+      "max_abs_vector_error": 1.4901161193847656e-07,
+      "rank_mismatches": [
+        0,
+        0
+      ],
+      "ranking_digests": [
+        "874f048bf3e4471357d2489f83b33650f57b51a71756957d680d7bb9b7aaa603",
+        "1feb3549894a2d8dcec2ceb24b987ad61605562d74f0feb918a4a9bd7cf65874"
+      ],
+      "variant": "batch"
+    },
+    {
+      "batch_histogram": {
+        "8": 72
+      },
+      "elapsed": 2.986732207937166,
+      "max_abs_vector_error": 1.4901161193847656e-07,
+      "rank_mismatches": [
+        0,
+        0
+      ],
+      "ranking_digests": [
+        "874f048bf3e4471357d2489f83b33650f57b51a71756957d680d7bb9b7aaa603",
+        "1feb3549894a2d8dcec2ceb24b987ad61605562d74f0feb918a4a9bd7cf65874"
+      ],
+      "variant": "batch"
+    },
+    {
+      "batch_histogram": {
+        "1": 576
+      },
+      "elapsed": 3.322944500017911,
+      "max_abs_vector_error": 0.0,
+      "rank_mismatches": [
+        0,
+        0
+      ],
+      "ranking_digests": [
+        "874f048bf3e4471357d2489f83b33650f57b51a71756957d680d7bb9b7aaa603",
+        "1feb3549894a2d8dcec2ceb24b987ad61605562d74f0feb918a4a9bd7cf65874"
+      ],
+      "variant": "scalar"
+    }
+  ],
+  "versions": {
+    "fastembed": "0.8.0",
+    "numpy": "2.5.3",
+    "onnxruntime": "1.30.0"
+  },
+  "wave_index_model_versions": {
+    "code": "Snowflake/snowflake-arctic-embed-s@full@wf-model-set-2-20260811-arctic-s",
+    "docs": "Snowflake/snowflake-arctic-embed-s@full@wf-model-set-2-20260811-arctic-s"
+  }
+}

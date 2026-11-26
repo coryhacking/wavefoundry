@@ -853,6 +853,142 @@ class SituationQueryEvalTests(unittest.TestCase):
                                            "fallback_reason": reason}}}
         return stub, calls
 
+    def test_comparison_vectors_are_shared_per_case_and_preserve_batch_order(self):
+        _null_read_snapshot(self)
+        queries = ["upgrade ledger", "dashboard settings", "tie", "package restart", "release notes"]
+        cases = [_case(f"q-{i}", "answerable", "r1", ["r1"], query=q) for i, q in enumerate(queries)]
+        self.write_set(cases)
+
+        def query_vector(text):
+            return [0.0] * 16 if text == "tie" else _vec(text)
+
+        reference = None
+        for use_batches in (False, True, False):
+            index = _ArmIndex(self.root)
+            scalar_calls, batches = [], []
+
+            def scalar(text, model):
+                self.assertEqual(model, "stub-docs-model")
+                scalar_calls.append(text)
+                return query_vector(text)
+
+            def batch(texts):
+                batches.append(texts)
+                return [query_vector(text) for text in texts]
+
+            index._embed_query = scalar
+            if use_batches:
+                index._evaluation_comparison_backend = lambda model, embedder, size: (embedder, batch, size)
+            stub, production_calls = self.production_stub({})
+            with patch.object(self.mh, "memory_search_response", stub), \
+                    patch.object(evalh, "_COMPARISON_BATCH_SIZE", 2), \
+                    patch.object(evalh, "score_arms", wraps=evalh.score_arms) as scorer:
+                report = evalh.run_curated(self.root, index=index)
+            self.assertTrue(report["available"], report.get("unavailable_reason"))
+            self.assertEqual([call["query"] for call in production_calls], queries)
+            self.assertEqual(scalar_calls, [] if use_batches else queries)
+            self.assertEqual(batches, [queries[:2], queries[2:4], queries[4:]] if use_batches else [])
+            outcomes = scorer.call_args.args[1]
+            for arm in evalh.ABLATION_ARMS:
+                tied = outcomes[arm][2][0]
+                self.assertGreater(len(tied), 1)
+                self.assertEqual(tied, sorted(tied))
+                self.assertGreater(len({tuple(row[0]) for row in outcomes[arm]}), 1)
+            if reference is None:
+                reference = outcomes
+            self.assertEqual(outcomes, reference)
+
+    def test_curated_local_backend_binds_matrices_and_queries_on_the_same_device(self):
+        import os
+        from types import SimpleNamespace
+        from wf_server.server_impl import WaveIndex
+        import accel_embedder
+        import indexer
+
+        _null_read_snapshot(self)
+        queries = [f"unique operational question {n}" for n in range(33)]
+        self.write_set([_case(f"q-{n}", "answerable", "r1", ["r1"], query=q)
+                        for n, q in enumerate(queries)])
+        prefix = indexer.query_embedding_prefix(indexer.DOCS_MODEL)
+
+        class LocalModel:
+            def __init__(self):
+                self.calls = []
+                session = SimpleNamespace(get_providers=lambda: ["CPUExecutionProvider"])
+                self.model = SimpleNamespace(model=session)
+
+            def embed(self, texts):
+                self.calls.append(list(texts))
+                return [_vec(t) * 24 for t in texts]
+
+        previous = sys.modules.get("fastembed")
+        if previous is None:
+            self.addCleanup(sys.modules.pop, "fastembed", None)
+        else:
+            self.addCleanup(sys.modules.__setitem__, "fastembed", previous)
+        sys.modules["fastembed"] = SimpleNamespace(TextEmbedding=LocalModel)
+        self.enterContext(patch.dict(os.environ))
+        flag = "WAVEFOUNDRY_MEMORY_EVAL_BATCH_DIRECT"
+        for gpu_ready, scalar, expected_width in ((False, False, 8), (True, False, 32), (True, True, 1)):
+            with self.subTest(gpu_ready=gpu_ready, scalar=scalar):
+                if scalar:
+                    os.environ[flag] = "0"
+                else:
+                    os.environ.pop(flag, None)
+                local, gpu = LocalModel(), LocalModel()
+                index = _ArmIndex(self.root)
+                index._get_embedder = lambda model: local
+                index._indexer_constant = lambda name: indexer.DOCS_MODEL
+                index._indexer_module = lambda: indexer
+                index._offline_model_env = WaveIndex.__new__(WaveIndex)._offline_model_env
+                index._evaluation_comparison_backend = WaveIndex._evaluation_comparison_backend.__get__(index)
+                stub, calls = self.production_stub({})
+                with patch.object(self.mh, "memory_search_response", stub), \
+                        patch.object(accel_embedder, "cached_evaluation_gpu", return_value=gpu if gpu_ready else None):
+                    report = evalh.run_curated(self.root, index=index)
+                self.assertTrue(report["available"], report.get("unavailable_reason"))
+                model = gpu if gpu_ready else local
+                # Both document matrices are built first. Every later call is
+                # a chunk of the original prefixed query list on the same model.
+                self.assertEqual(len(model.calls[:2]), 2)
+                self.assertEqual(model.calls[2:], [[prefix + q for q in queries[i:i + expected_width]]
+                                 for i in range(0, len(queries), expected_width)])
+                self.assertFalse((local if gpu_ready else gpu).calls)
+                self.assertEqual(len(calls), len(queries))
+
+    def test_comparison_batch_failures_cannot_produce_a_score(self):
+        _null_read_snapshot(self)
+        cases = _ac1_cases()[:3]
+        self.write_set(cases)
+        index = _ArmIndex(self.root)
+        stub, _ = self.production_stub({})
+        bad_responses = ([], [[0.0]], [[float("nan")] * 16], [[[1.0] * 16]],
+                         TimeoutError(), KeyboardInterrupt())
+        for malformed in bad_responses:
+            with self.subTest(response=repr(malformed)):
+                calls = []
+
+                def batch(texts):
+                    calls.append(texts)
+                    if len(calls) == 1:
+                        return [_vec(q) for q in texts]
+                    if isinstance(malformed, BaseException):
+                        raise malformed
+                    return malformed
+
+                index._evaluation_comparison_backend = lambda model, embedder, size: (embedder, batch, size)
+                with patch.object(self.mh, "memory_search_response", stub), \
+                        patch.object(evalh, "_COMPARISON_BATCH_SIZE", 2):
+                    if isinstance(malformed, KeyboardInterrupt):
+                        with self.assertRaises(KeyboardInterrupt):
+                            evalh.run_curated(self.root, index=index)
+                    else:
+                        report = evalh.run_curated(self.root, index=index)
+                        self.assertFalse(report["available"])
+                        self.assertEqual(report["unavailable_reason"],
+                                         "dense_summary_only query measurement unavailable")
+                self.assertEqual([len(call) for call in calls], [2, 1])
+
     # AC-1 -----------------------------------------------------------------
     def test_ac1_metrics_and_fixed_baselines(self):
         for key in ("r1", "r2", "r4", "q-004", "q-005"):
@@ -1692,6 +1828,84 @@ class VersionedQuerySetTests(unittest.TestCase):
         self.assertIn("metrics", report)
         self.assertNotIn("version", json.loads(
             (self.root / evalh.QUERY_SET_LOCK_PATH).read_text(encoding="utf-8")))
+
+
+class DirectQueryBatchTests(unittest.TestCase):
+    def test_direct_batch_preserves_scalar_prefix_and_limits_qualification(self):
+        import os
+        from types import SimpleNamespace
+        from wf_server.server_impl import WaveIndex
+        import indexer
+
+        model = indexer.DOCS_MODEL
+        prefix = indexer.query_embedding_prefix(model)
+        queries = ["ordinary question", prefix + "literal input"]
+        inputs = []
+        providers = ["CPUExecutionProvider"]
+
+        class DirectEmbedder:
+            def embed(self, texts):
+                inputs.append((list(texts), os.environ.get("HF_HUB_OFFLINE")))
+                return ([len(text)] * 384 for text in texts)
+
+        embedder = DirectEmbedder()
+        session = SimpleNamespace(get_providers=lambda: providers)
+        embedder.model = SimpleNamespace(model=session)
+        index = WaveIndex.__new__(WaveIndex)
+        # Restore this one optional dependency without unimporting native modules
+        # loaded by the real inference path while the fixture runs.
+        previous = sys.modules.get("fastembed")
+        if previous is None:
+            self.addCleanup(sys.modules.pop, "fastembed", None)
+        else:
+            self.addCleanup(sys.modules.__setitem__, "fastembed", previous)
+        sys.modules["fastembed"] = SimpleNamespace(TextEmbedding=DirectEmbedder)
+        flag = "WAVEFOUNDRY_MEMORY_EVAL_BATCH_DIRECT"
+        self.enterContext(patch.dict(os.environ))
+        os.environ.pop(flag, None)
+        import accel_embedder
+        select = index._evaluation_comparison_backend
+        with patch.object(index, "_get_embedder", return_value=embedder), \
+                patch.object(accel_embedder, "cached_evaluation_gpu", return_value=None):
+            reference = [index._embed_query(q, model) for q in queries]
+            matrix_model, batcher, width = select(model, embedder, 8)
+            self.assertIs(matrix_model, embedder)
+            self.assertEqual(width, 8)
+            self.assertEqual(batcher(queries).tolist(), reference)
+            expected = [prefix + q for q in queries]
+            self.assertEqual(inputs, [([expected[0]], "1"), ([expected[1]], "1"), (expected, "1")])
+            os.environ[flag] = "0"
+            self.assertEqual(select(model, embedder, 8)[2], 1)
+            with patch.object(embedder, "embed", return_value=iter([[0.] * 384])):
+                with self.assertRaisesRegex(ValueError, "invalid local query batch"):
+                    batcher(queries)
+            self.assertIsNone(select("untested-model", embedder, 8)[1])
+            providers.insert(0, "CUDAExecutionProvider")
+            self.assertIsNone(select(model, embedder, 8)[1])
+        self.assertIsNone(select(model, SimpleNamespace(embed=embedder.embed), 8)[1])
+
+    def test_evaluation_gpu_qualification_honors_explicit_and_setup_device(self):
+        import os
+        import accel_embedder as accel
+        import provider_policy as policy
+        model = "Snowflake/snowflake-arctic-embed-s"
+        self.enterContext(patch.dict(os.environ))
+        os.environ.pop(policy.REQUESTED_PROVIDER_ENV, None)
+        gpus = [accel.COREML_PROVIDER, accel.CUDA_PROVIDER]
+        gpu = object()
+        with patch.object(accel, "_available_gpu_providers", return_value=gpus), \
+                patch.object(accel, "make_embedder", return_value=gpu) as make:
+            os.environ[policy.SETUP_SELECTED_ENV] = policy.CPU_PROVIDER
+            self.assertIsNone(accel.cached_evaluation_gpu(model))
+            os.environ[policy.REQUESTED_PROVIDER_ENV] = "cpu"
+            self.assertIsNone(accel.cached_evaluation_gpu(model))
+            os.environ[policy.REQUESTED_PROVIDER_ENV] = "rocm"
+            self.assertIsNone(accel.cached_evaluation_gpu(model))
+            make.assert_not_called()
+            os.environ[policy.REQUESTED_PROVIDER_ENV] = "cuda"
+            self.assertIs(accel.cached_evaluation_gpu(model), gpu)
+            make.assert_called_once_with(model, [accel.CUDA_PROVIDER], cached_only=True)
+
 
 
 if __name__ == "__main__":

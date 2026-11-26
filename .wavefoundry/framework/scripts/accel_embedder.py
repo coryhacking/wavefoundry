@@ -87,7 +87,7 @@ CLEAN_ONNX_SOURCES: dict[str, tuple[str, str, str]] = {
 }
 _CLEAN_ONNX_CACHE = _HOME / "cache" / "onnx-src"
 _COREML_STATIC_PROBE_CHILD_ENV = "WAVEFOUNDRY_COREML_STATIC_PROBE_CHILD"
-_coreml_static_probe_cache: dict[tuple[str, str], bool] = {}
+_coreml_static_probe_cache: dict[tuple[str, ...], bool] = {}
 
 # 1v4mu: the probe's rejection warning carries the child's cause. Bounded,
 # because arbitrary ONNX Runtime / CoreML stderr can run to many kilobytes and
@@ -160,10 +160,11 @@ import accel_embedder as ae
 workload, model = sys.argv[1], sys.argv[2]
 if workload == "embedder":
     text = "Wavefoundry static CoreML safety and parity probe."
-    gpu = ae.StaticShapeEmbedder(model, [ae.COREML_PROVIDER, "CPUExecutionProvider"])
+    cached_only = len(sys.argv) > 3 and sys.argv[3] == "--cached-only"
+    gpu = ae.StaticShapeEmbedder(model, [ae.COREML_PROVIDER, "CPUExecutionProvider"], cached_only=cached_only)
     first = list(gpu.embed([text] * ae.STATIC_BATCH))
     second = list(gpu.embed([text] * ae.STATIC_BATCH))
-    cpu = ae.StaticShapeEmbedder(model, ["CPUExecutionProvider"])
+    cpu = ae.StaticShapeEmbedder(model, ["CPUExecutionProvider"], cached_only=cached_only)
     cpu_vector = list(cpu.embed([text]))[0]
     if len(first) != ae.STATIC_BATCH or len(second) != ae.STATIC_BATCH:
         raise RuntimeError("static embedder batch shape mismatch")
@@ -205,7 +206,7 @@ def _coreml_static_probe_command(workload: str, model_name: str) -> list[str]:
     ]
 
 
-def _coreml_static_probe_passes(model_name: str, workload: str) -> bool:
+def _coreml_static_probe_passes(model_name: str, workload: str, *, cached_only: bool = False) -> bool:
     """Crash-isolate the production static CoreML graph before in-process use.
 
     Python exception handling cannot catch an ONNX Runtime/CoreML SIGSEGV. The
@@ -218,13 +219,22 @@ def _coreml_static_probe_passes(model_name: str, workload: str) -> bool:
     key = (workload, model_name)
     if key in _coreml_static_probe_cache:
         return _coreml_static_probe_cache[key]
+    if cached_only:
+        # A missing offline reference model must not disqualify a later setup
+        # probe that can populate its cache.
+        key = (workload, model_name, "cached-only")
+        if key in _coreml_static_probe_cache:
+            return _coreml_static_probe_cache[key]
     if workload not in {"embedder", "reranker"}:
         return False
     child_env = os.environ.copy()
     child_env[_COREML_STATIC_PROBE_CHILD_ENV] = "1"
     try:
+        command = _coreml_static_probe_command(workload, model_name)
+        if cached_only:
+            command.append("--cached-only")
         completed = _run_tree_kill(
-            _coreml_static_probe_command(workload, model_name),
+            command,
             cwd=str(Path(__file__).resolve().parent),
             env=child_env,
             capture_output=True,
@@ -638,6 +648,31 @@ def build_static_onnx(
     return out_path
 
 
+def _cached_embedder_files(model_name: str, gpu: bool) -> Optional[tuple[str, str]]:
+    """Read the clean model and tokenizer from the local Hub cache without downloading."""
+    from huggingface_hub import try_to_load_from_cache
+    repo, fp16_file, tokenizer = CLEAN_ONNX_SOURCES[model_name]
+    files = [try_to_load_from_cache(repo, name, cache_dir=str(_CLEAN_ONNX_CACHE))
+             for name in (fp16_file if gpu else EMBEDDER_CPU_ONNX_FILE, tokenizer)]
+    if all(isinstance(path, str) and Path(path).is_file() for path in files):
+        return os.path.realpath(files[0]), files[1]
+    return None
+
+
+def cached_evaluation_gpu(model_name: str):
+    """Qualify the explicitly selected or available GPU for an offline evaluation."""
+    import provider_policy
+    available = _available_gpu_providers()
+    request = os.environ.get(REQUESTED_PROVIDER_ENV, "auto").strip().lower()
+    selected = (provider_policy.PROVIDER_REQUESTS.get(request) if request not in ("", "auto")
+                else os.environ.get(SETUP_SELECTED_ENV))
+    if selected or request not in ("", "auto"):
+        available = [provider for provider in available if provider == selected]
+    if not available:
+        return None
+    return make_embedder(model_name, available, cached_only=True)
+
+
 class StaticShapeEmbedder:
     """fastembed-compatible embedder backed by a static-shape ONNX. Dual precision by provider
     (wave 1p935, mirrors ``StaticShapeReranker``):
@@ -655,15 +690,20 @@ class StaticShapeEmbedder:
     ``TextEmbedding.embed``), batching internally to the fixed ``STATIC_BATCH``.
     """
 
-    def __init__(self, model_name: str, providers: Iterable[str]) -> None:
+    def __init__(self, model_name: str, providers: Iterable[str], *, cached_only: bool = False) -> None:
         import numpy as np  # noqa: F401  (import-time availability check)
         import onnxruntime as ort
         venv_bootstrap.disable_onnxruntime_telemetry(ort)
         from tokenizers import Tokenizer
 
         gpu = next((p for p in providers if p in GPU_PROVIDERS), None)
+        files = None
+        if cached_only:
+            files = _cached_embedder_files(model_name, gpu is not None)
+            if files is None:
+                raise FileNotFoundError(f"No cached ONNX/tokenizer for {model_name!r}")
         if gpu == COREML_PROVIDER and not _coreml_static_probe_passes(
-            model_name, "embedder"
+            model_name, "embedder", cached_only=cached_only
         ):
             # Consult the crash-isolated child before resolving/building the graph or creating
             # any CoreML objects in this long-lived process.  In particular, a cached rejection
@@ -675,7 +715,7 @@ class StaticShapeEmbedder:
 
         if gpu is not None:
             # GPU FP16 path.
-            files = _resolve_model_files(model_name)
+            files = files or _resolve_model_files(model_name)
             if files is None:
                 raise FileNotFoundError(f"No cached ONNX/tokenizer for {model_name!r}")
             src_onnx, tok_path = files
@@ -709,7 +749,7 @@ class StaticShapeEmbedder:
             # batch dimension is free, so we load the shipped dynamic export directly instead of
             # building a pinned derivative. That also drops a locally generated artifact that was
             # never hash-verified in favour of one the model-set manifest covers.
-            files = _resolve_embedder_cpu_files(model_name)
+            files = files or _resolve_embedder_cpu_files(model_name)
             if files is None:
                 raise FileNotFoundError(f"No cached INT8 ONNX/tokenizer for embedder {model_name!r}")
             src_onnx, tok_path = files
@@ -844,7 +884,7 @@ def _warn_cuda12_gap_if_present() -> None:
         _warn_cuda12_gap_once(gap.remediation)
 
 
-def make_embedder(model_name: str, providers: Iterable[str]):
+def make_embedder(model_name: str, providers: Iterable[str], *, cached_only: bool = False):
     """Return a ``StaticShapeEmbedder``: FP16 on a GPU that actually offloads this model's graph,
     else INT8 on the CPU EP when an INT8 clean-export source exists (wave 1p935); otherwise
     ``None`` so the caller falls back to fastembed.
@@ -880,7 +920,8 @@ def make_embedder(model_name: str, providers: Iterable[str]):
         # AND diverge from _predicted_precision_class (which reports "full" whenever a GPU exists),
         # which would then force perpetual re-embeds via the 1p936 precision-in-version guard.
         try:
-            embedder = StaticShapeEmbedder(model_name, gpu + ["CPUExecutionProvider"])
+            embedder = StaticShapeEmbedder(model_name, gpu + ["CPUExecutionProvider"],
+                                          cached_only=cached_only)
             if embedder.offloads_to_gpu():
                 return embedder
             if CUDA_PROVIDER in gpu:

@@ -52,6 +52,7 @@ import re
 import sys
 import tempfile
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -927,6 +928,7 @@ SPLITS = ("heldout", "dev")
 ARMS = ("no_memory", "grep", "bm25_only", "dense_only", "hybrid_no_rerank",
         "production", "full_context")
 ABLATION_ARMS = ("dense_summary_only", "dense_compact")
+_COMPARISON_BATCH_SIZE = 8
 METRIC_KEYS = ("recall_at_5", "mrr", "precision_shown", "false_show_rate",
                "stale_shown_rate")
 # ``full_context`` ranks by memory id, so recall@5 measures id order, not
@@ -1403,26 +1405,43 @@ def _compact_text(record: dict[str, Any]) -> str:
 class _Ablation:
     """In-process one-vector-per-record arms; never writes the index."""
 
-    def __init__(self, index: Any, records: list[dict[str, Any]], texts: list[str]):
+    def __init__(self, embedder: Any, records: list[dict[str, Any]], texts: list[str]):
         import numpy as np
-        self._np = np
         self._ids = [record["memory_id"] for record in records]
-        self._model = index._indexer_constant("DOCS_MODEL")
-        self._index = index
-        embedder = index._get_embedder(self._model)
         matrix = np.asarray([np.asarray(v, dtype=np.float32) for v in embedder.embed(texts)])
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         self._matrix = matrix / norms
         self.mean_chars = round(sum(len(text) for text in texts) / max(len(texts), 1), 1)
 
-    def order(self, query: str, cap: int) -> list[str]:
-        np = self._np
-        vector = np.asarray(self._index._embed_query(query, self._model), dtype=np.float32)
-        norm = float(np.linalg.norm(vector)) or 1.0
-        scores = self._matrix @ (vector / norm)
+    def order(self, unit_vector: Any, cap: int) -> list[str]:
+        scores = self._matrix @ unit_vector
         ranked = sorted(range(len(self._ids)), key=lambda i: (-float(scores[i]), self._ids[i]))
         return [self._ids[i] for i in ranked[:cap]]
+
+
+def _comparison_query_vectors(index: Any, model: str, cases: list[dict[str, Any]],
+                              batcher: Any, batch_size: int) -> Iterator[Any]:
+    """Yield each comparison query once, in the frozen case order."""
+    if batcher is None:
+        for case in cases:
+            yield index._embed_query(case["query"], model)
+        return
+    for offset in range(0, len(cases), batch_size):
+        queries = [case["query"] for case in cases[offset:offset + batch_size]]
+        vectors = batcher(queries)
+        if len(vectors) != len(queries):
+            raise ValueError("invalid query batch cardinality")
+        yield from vectors
+
+
+def _unit_query_vector(raw: Any) -> Any:
+    import numpy as np
+    vector = np.asarray(raw, dtype=np.float32)
+    norm = float(np.linalg.norm(vector))
+    if vector.ndim != 1 or not vector.size or not math.isfinite(norm):
+        raise ValueError("invalid comparison query vector")
+    return vector / (norm or 1.0)
 
 
 def target_retrievable(root: Path, records: list[dict[str, Any]], index: Any,
@@ -1640,13 +1659,20 @@ def run_curated(root: Path, k: int = DEFAULT_K, *, index: Any = None,
     fallback_reasons: Counter = Counter()
     dense_reason: str | None = None
     try:
+        model = index._indexer_constant("DOCS_MODEL")
+        embedder = index._get_embedder(model)
+        batcher, batch_size = None, _COMPARISON_BATCH_SIZE
+        select = getattr(index, "_evaluation_comparison_backend", None)
+        if select is not None:
+            embedder, batcher, batch_size = select(model, embedder, batch_size)
         ablations = {
-            "dense_summary_only": _Ablation(index, surfaced,
+            "dense_summary_only": _Ablation(embedder, surfaced,
                                             [str(r.get("summary") or "") for r in surfaced]),
-            "dense_compact": _Ablation(index, surfaced, [_compact_text(r) for r in surfaced]),
+            "dense_compact": _Ablation(embedder, surfaced, [_compact_text(r) for r in surfaced]),
         }
     except Exception:
         return _unavailable(report, "dense_summary_only query measurement unavailable")
+    comparison_vectors = _comparison_query_vectors(index, model, scored, batcher, batch_size)
     for case in scored:
         query = case["query"]
         lexical = lexical_bm25_order(corpus, query)
@@ -1684,9 +1710,13 @@ def run_curated(root: Path, k: int = DEFAULT_K, *, index: Any = None,
             production["fallback_probes"] += 1
             fallback_reasons[str(retrieval.get("fallback_reason"))] += 1
         outcomes["production"].append((shown, shown))
+        try:
+            unit_vector = _unit_query_vector(next(comparison_vectors))
+        except Exception:
+            return _unavailable(report, "dense_summary_only query measurement unavailable")
         for arm, ablation in ablations.items():
             try:
-                ranked = ablation.order(query, check_cap)
+                ranked = ablation.order(unit_vector, check_cap)
             except Exception:
                 return _unavailable(report, f"{arm} query measurement unavailable")
             outcomes[arm].append((ranked, ranked))

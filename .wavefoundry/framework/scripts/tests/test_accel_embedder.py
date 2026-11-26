@@ -204,6 +204,26 @@ class AccelEmbedderTests(unittest.TestCase):
             "1",
         )
 
+    def test_cached_only_probe_failure_does_not_disqualify_setup(self):
+        model = "Snowflake/snowflake-arctic-embed-s"
+        missing = MagicMock(returncode=1, stdout="", stderr="missing cached reference")
+        healthy = MagicMock(returncode=0, stdout="", stderr="")
+        with patch.object(self.ae, "_run_tree_kill", side_effect=[missing, healthy]) as run:
+            self.assertFalse(self.ae._coreml_static_probe_passes(model, "embedder", cached_only=True))
+            self.assertTrue(self.ae._coreml_static_probe_passes(model, "embedder"))
+        first, second = run.call_args_list
+        self.assertEqual(first.args[0][-1], "--cached-only")
+        self.assertNotIn("--cached-only", second.args[0])
+
+    def test_cached_only_gpu_cache_miss_never_resolves_online_or_starts_probe(self):
+        model = "Snowflake/snowflake-arctic-embed-s"
+        with patch.object(self.ae, "_cached_embedder_files", return_value=None), \
+                patch.object(self.ae, "_coreml_static_probe_passes") as probe, \
+                patch.object(self.ae, "_resolve_model_files") as resolve:
+            self.assertIsNone(self.ae.make_embedder(model, [self.ae.COREML_PROVIDER], cached_only=True))
+        probe.assert_not_called()
+        resolve.assert_not_called()
+
     def test_coreml_static_probe_accepts_clean_child_exit(self):
         completed = MagicMock(returncode=0, stdout="", stderr="")
         with patch.object(
@@ -383,7 +403,7 @@ class AccelEmbedderTests(unittest.TestCase):
                     [self.ae.COREML_PROVIDER, "CPUExecutionProvider"],
                 )
         probe.assert_called_once_with(
-            "Snowflake/snowflake-arctic-embed-s", "embedder"
+            "Snowflake/snowflake-arctic-embed-s", "embedder", cached_only=False
         )
         resolve.assert_not_called()
 
