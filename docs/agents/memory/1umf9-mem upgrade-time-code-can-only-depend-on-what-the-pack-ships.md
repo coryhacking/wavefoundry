@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-07
+Last verified: 2026-11-26
 
 Memory ID: `1umf9-mem upgrade-time-code-can-only-depend-on-what-the-pack-ships`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-08-07
-Updated: 2026-08-07
+Updated: 2026-11-26
 Source exploration cost: 51887
 Source event: `decision-log:1ulr2-bug upgrade-preflight-blocks-on-state-it-owns:78de10052171b26d`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The drafted candidate records one wave's specific rejectio
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The bridge dispatches the installed runner in the target checkout. Future imports need a check against real pack membership. Reviewed .wavefoundry/framework/scripts/upgrade_bridge_bootstrap.py:605.
+Check flags: target_churn
 
 ## Summary
 

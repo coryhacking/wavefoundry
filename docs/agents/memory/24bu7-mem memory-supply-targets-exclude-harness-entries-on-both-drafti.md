@@ -8,8 +8,11 @@ Memory ID: `24bu7-mem memory-supply-targets-exclude-harness-entries-on-both-draf
 Kind: `decision`
 Confidence: 0.85
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1tj3j-mem memory-supply-targets-exclude-harness-entries-on-both-drafti`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Memory drafting and validation both inspect evidence targets. Keep the configured runner exclusions aligned across their inputs. Reviewed .wavefoundry/framework/scripts/memory_supply.py:502.
+Check flags: none
 
 ## Summary
 

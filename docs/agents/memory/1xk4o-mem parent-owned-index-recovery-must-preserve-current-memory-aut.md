@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-11-26
 
 Memory ID: `1xk4o-mem parent-owned-index-recovery-must-preserve-current-memory-aut`
 Kind: `fragile_file`
 Confidence: 0.95
 Created: 2026-09-09
-Updated: 2026-09-09
+Updated: 2026-11-26
 Source exploration cost: 2492314
 Source event: `finding:1xjmm:ARCH-DEL-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Followed ARCH-DEL-1 initial, failed first repair and succe
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: Storage upgrade checks publication readiness before indexing. Recovery of a staged receipt still depends on current ownership. Reviewed .wavefoundry/framework/scripts/upgrade_wavefoundry.py:3110.
+Check flags: target_churn
 
 ## Summary
 

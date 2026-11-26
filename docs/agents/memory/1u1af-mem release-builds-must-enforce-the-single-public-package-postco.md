@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-11-26
 
 Memory ID: `1u1af-mem release-builds-must-enforce-the-single-public-package-postco`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-07-31
-Updated: 2026-07-31
+Updated: 2026-11-26
 Source exploration cost: 3641306
 Source event: `finding:1tz6l:public-release-emits-special-upgrade-package`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated draft restates only that a reverification co
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The builder guards stale composition artifacts and enforces the public ZIP count. Keep the design restriction against adding a second public artifact. Reviewed .wavefoundry/framework/scripts/build_pack.py:1762.
+Check flags: none
 
 ## Summary
 

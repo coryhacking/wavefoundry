@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-11-26
 
 Memory ID: `1u51u-mem permission-render-fragility-is-overclaiming-prose-not-merge-`
 Kind: `fragile_file`
 Confidence: 0.85
 Created: 2026-07-31
-Updated: 2026-07-31
+Updated: 2026-11-26
 Source exploration cost: 777948
 Source event: `repeated-repairs:1u2b0:render_platform_surfaces.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The draft records a repair count with no mechanism, and th
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: Permission merge semantics and user-facing descriptions still have separate verification paths. Reviewed .wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md:438.
+Check flags: target_churn
 
 ## Summary
 

@@ -1,14 +1,14 @@
 # Close requires explicit disposition for evidence-derived memory
 
 Owner: Engineering
-Status: active
+Status: archived
 Last verified: 2026-11-22
 
 Memory ID: `1syzx-mem close-requires-explicit-disposition-for-evidence-derived-mem`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-07-19
-Updated: 2026-11-22
+Updated: 2026-11-25
 Source event: `finding:1sxj7:memory-close-one-shot-silent`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,12 @@ Validation rationale: The independent public close probe reproduced the missing-
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:34:25Z
+Check note: docs/prompts/close-wave.prompt.md now requires explicit source selection, permits a reasoned zero selection, and requires disposition of every actual selected pending record. The older advice incorrectly restricts zero selection to an empty proposal.
+Check flags: none
+Archived: 2026-11-25
+Archive reason: docs/prompts/close-wave.prompt.md now requires explicit source selection, permits a reasoned zero selection, and requires disposition of every actual selected pending record. The older advice incorrectly restricts zero selection to an empty proposal.
+Archive path: `docs/agents/memory/archive/1syzx-mem close-requires-explicit-disposition-for-evidence-derived-mem.md`
 
 ## Summary
 

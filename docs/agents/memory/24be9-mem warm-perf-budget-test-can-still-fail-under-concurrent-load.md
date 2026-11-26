@@ -8,8 +8,11 @@ Memory ID: `24be9-mem warm-perf-budget-test-can-still-fail-under-concurrent-load
 Kind: `environment_gotcha`
 Confidence: 0.75
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1tdvh-mem warm-perf-budget-test-flakes-under-load`
+Checked at: 2026-11-26T06:32:44Z
+Check note: The timing suite adjusts for measured contention. Compare a canonical run against an isolated rerun before attributing a regression. Reviewed .wavefoundry/framework/scripts/tests/test_server_context_efficiency.py:3739.
+Check flags: none
 
 ## Summary
 

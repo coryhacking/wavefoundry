@@ -8,8 +8,11 @@ Memory ID: `24aqr-mem changing-the-finalize-dangling-endpoint-filter-needs-local
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1x5yv-mem the-finalize-dangling-filter-s-outage-exemption-is-keyed-on-`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Graph finalization uses unreadable paths when resolving endpoints. Test the affected boundary and adjacent unaffected paths. Reviewed .wavefoundry/framework/scripts/graph_indexer.py:15335.
+Check flags: none
 
 ## Summary
 

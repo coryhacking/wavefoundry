@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-17
+Last verified: 2026-11-26
 
 Memory ID: `1vn0v-mem renderer-materialized-docs-baselines-must-lint-on-their-own-`
 Kind: `fragile_file`
 Confidence: 0.95
 Created: 2026-08-17
-Updated: 2026-08-17
+Updated: 2026-11-26
 Source exploration cost: 3068146
 Source event: `finding:1viyu:CODE-DEL-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Two independent delivery lanes built faithful trees and fo
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Lifecycle baselines are reconciled during rendering. Check lint on a freshly materialized target as well as the source tree. Reviewed .wavefoundry/framework/scripts/render_agent_surfaces.py:5790.
+Check flags: target_churn
 
 ## Summary
 

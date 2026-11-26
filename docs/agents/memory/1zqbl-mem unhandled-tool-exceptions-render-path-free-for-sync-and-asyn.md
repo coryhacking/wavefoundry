@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-11-26
 
 Memory ID: `1zqbl-mem unhandled-tool-exceptions-render-path-free-for-sync-and-asyn`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-10-04
-Updated: 2026-10-04
+Updated: 2026-11-26
 Source exploration cost: 470529
 Source event: `decision-log:1zqe3-bug reload-tool-exception-text-is-path-free:5f2d4fb2a2c92a15`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Generated candidate targeted server.py only and described 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:41Z
+Check note: The server applies the exception wrapper to the rendered tool set. New asynchronous tools need the same path-free error boundary. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:23192.
+Check flags: target_churn
 
 ## Summary
 

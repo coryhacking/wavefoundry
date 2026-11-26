@@ -8,9 +8,12 @@ Memory ID: `24akh-mem retrieval-eval-store-identity-uses-the-inode-not-a-minted-
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 125943
 Supersedes: `1wuq9-mem decision-select-the-inode-split-implementation-and-reject-th`
+Checked at: 2026-11-26T06:32:43Z
+Check note: The evaluator binds to the underlying store identity. Replacing the store and reopening the same path are different cases. Reviewed .wavefoundry/framework/scripts/retrieval_eval.py:1606.
+Check flags: none
 
 ## Summary
 

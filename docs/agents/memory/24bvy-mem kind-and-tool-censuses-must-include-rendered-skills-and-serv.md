@@ -8,9 +8,12 @@ Memory ID: `24bvy-mem kind-and-tool-censuses-must-include-rendered-skills-and-se
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 68521
 Supersedes: `1zlgh-mem kind-and-tool-censuses-must-include-skills-and-hand-edited-p`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Retiring a kind or tool name affects rendered skills and served registration. A code-only census misses those consumers. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:1113.
+Check flags: none
 
 ## Summary
 

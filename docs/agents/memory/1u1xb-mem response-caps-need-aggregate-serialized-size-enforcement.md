@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1u1xb-mem response-caps-need-aggregate-serialized-size-enforcement`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-07-31
-Updated: 2026-07-31
+Updated: 2026-11-26
 Source exploration cost: 2939264
 Source event: `finding:1tz6l:upgrade-response-cap-aggregate-bypasses`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The source finding is durable, but the generated candidate
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The terminal response compaction tests cover diagnostic keys; new metadata can still increase the total serialized response. Reviewed .wavefoundry/framework/scripts/tests/test_server_tools.py:7230.
+Check flags: target_churn
 
 ## Summary
 

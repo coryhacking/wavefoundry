@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-05
+Last verified: 2026-11-26
 
 Memory ID: `1x5tw-mem secrets-scan-cache-has-two-producers-cache-record-rules-must`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-09-05
-Updated: 2026-09-05
+Updated: 2026-11-26
 Source exploration cost: 1286966
 Source event: `finding:1x5tr:RED-DEL-9`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: RED-DEL-9: the cycle-2 repair filtered unpublished guard o
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Two producers maintain scanner cache state. Eligibility and version changes must account for each writer. Reviewed .wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py:1227.
+Check flags: target_churn
 
 ## Summary
 

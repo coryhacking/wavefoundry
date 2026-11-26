@@ -8,8 +8,11 @@ Memory ID: `24bnl-mem upgrade-runner-phase-transition-playbook`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1u8q3-mem upgrade-runner-phase-playbook`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Upgrade phase transitions cross an old-code window. Rehearse the boundary using the incoming and installed versions. Reviewed .wavefoundry/framework/scripts/upgrade_wavefoundry.py:1569.
+Check flags: none
 
 ## Summary
 

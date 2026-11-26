@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-07
+Last verified: 2026-11-26
 
 Memory ID: `1xhix-mem write-the-idle-handoff-only-after-the-close-mutation-succeed`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-09-07
-Updated: 2026-09-07
+Updated: 2026-11-26
 Source exploration cost: 2181430
 Source event: `finding:1xdlx:RED-RDY-CLOSE-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: RED-RDY-CLOSE-1 proved that pre-writing a closed/idle hand
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: The close workflow and session handoff have distinct writes. The latest closure again needed a post-success handoff update. Reviewed docs/agents/session-handoff.md:518.
+Check flags: target_churn
 
 ## Summary
 

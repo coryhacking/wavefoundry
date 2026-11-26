@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-11-26
 
 Memory ID: `203f1-mem framework-child-processes-including-python-c-programs-must-n`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-10-07
-Updated: 2026-10-07
+Updated: 2026-11-26
 Source exploration cost: 184122
 Source event: `decision-log:1zyv1-enh project-local-bytecode-cache:baa579fab010af8c`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Wave 200xy widened the no-in-tree-bytecode rule to every p
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: The bytecode tests cover scratch installs and child entry points. Future Python subprocesses must inherit the cache contract. Reviewed .wavefoundry/framework/scripts/tests/test_bytecode_cache.py:3.
+Check flags: target_churn
 
 ## Summary
 

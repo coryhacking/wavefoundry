@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1tax0-mem stdout-is-a-contract-when-something-parses-it`
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-07-22
-Updated: 2026-07-22
+Updated: 2026-11-26
 Source event: `finding:1tbvp:run-garden-stdout-contract-break`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The drafted candidate again extracted its target from the 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: The gardener summary feeds server-side update counts. Treat emitted output and the consumer as one protocol. Reviewed .wavefoundry/framework/scripts/docs_gardener.py:521.
+Check flags: target_churn
 
 ## Summary
 

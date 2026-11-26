@@ -8,9 +8,12 @@ Memory ID: `24aie-mem a-tool-name-census-cannot-claim-completeness-pair-it-with-
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 60274
 Supersedes: `1yyok-mem repaired-defect-del-census-coverage`
+Checked at: 2026-11-26T06:32:43Z
+Check note: The extension tool census classifies discovered name collections. Indirect construction remains outside a literal-only inventory. Reviewed .wavefoundry/framework/scripts/tests/test_extension_tool_modules.py:4639.
+Check flags: none
 
 ## Summary
 

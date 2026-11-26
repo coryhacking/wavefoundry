@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-11-26
 
 Memory ID: `1ybvy-mem decision-record-roots-are-fork-editable-constants-in-record-`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-09-17
-Updated: 2026-09-17
+Updated: 2026-11-26
 Source exploration cost: 578663
 Source event: `decision-log:1y042-enh record-roots-config-and-resolver:a8e20667877520c3`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated candidate captures the SUPERSEDED cycle-1 de
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: The record-layout ADR documents the relocated-root requirements; changing path discovery must preserve distribution ownership. Reviewed docs/architecture/decisions/1yb8v-adr record-layout-config-over-resolver-protocol.md:38.
+Check flags: none
 
 ## Summary
 

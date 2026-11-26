@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1u4ms-mem runner-registered-mcp-tools-are-roster-members-but-must-be-l`
 Kind: `decision`
 Confidence: 0.85
 Created: 2026-07-31
-Updated: 2026-07-31
+Updated: 2026-11-26
 Source exploration cost: 777948
 Source event: `decision-log:1u2az-enh rendered-mcp-permission-allowlist:9566d9ec8bd807dc`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The rule is durable and non-obvious, but the draft targets
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: The roster includes tools registered by the runner outside ordinary surface registration. Keep both ownership and listing expectations. Reviewed .wavefoundry/framework/scripts/mcp_tool_roster.py:11.
+Check flags: target_churn
 
 ## Summary
 

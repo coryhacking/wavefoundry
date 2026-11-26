@@ -8,8 +8,11 @@ Memory ID: `24bza-mem a-citation-sweep-must-enumerate-every-locator-form-and-use
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1vo1a-mem a-citation-sweep-must-cover-every-surface-form-run-last-and-`
+Checked at: 2026-11-26T06:32:45Z
+Check note: TechDocs pages contain several citation formats. Verify each locator form against the actual referenced passage. Reviewed docs/prompts/refresh-techdocs.prompt.md:112.
+Check flags: none
 
 ## Summary
 

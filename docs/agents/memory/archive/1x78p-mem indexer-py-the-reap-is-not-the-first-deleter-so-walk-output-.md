@@ -1,14 +1,15 @@
 # indexer.py: the reap is not the first deleter, so walk-output guards must reach every consumer
 
 Owner: Engineering
-Status: active
+Status: archived
 Last verified: 2026-09-04
 
 Memory ID: `1x78p-mem indexer-py-the-reap-is-not-the-first-deleter-so-walk-output-`
+Superseded by: `24d31-mem preserve-unreadable-paths-before-every-index-removal-consume`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-09-04
-Updated: 2026-09-04
+Updated: 2026-11-25
 Source exploration cost: 1539381
 Source event: `repeated-repairs:1x54z:indexer.py`
 Validation: promote
@@ -18,6 +19,9 @@ Validation rationale: The draft counted repairs without the mechanism. The verif
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Archived: 2026-11-25
+Archive reason: Superseded with a SQLite-era removal trace. Preserve the original Lance-era graph recovery incident and provenance.
+Archive path: `docs/agents/memory/archive/1x78p-mem indexer-py-the-reap-is-not-the-first-deleter-so-walk-output-.md`
 
 ## Summary
 

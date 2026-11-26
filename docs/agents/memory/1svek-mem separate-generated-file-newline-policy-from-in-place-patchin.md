@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1svek-mem separate-generated-file-newline-policy-from-in-place-patchin`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1p9ix-bug windows-path-newline-stragglers:4c6909d24b66cfaa`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The renderer still intentionally separates generated-file 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: Rendered output and patches to project-authored text still need different newline treatment. Reviewed .wavefoundry/framework/scripts/render_agent_surfaces.py:275.
+Check flags: none
 
 ## Summary
 

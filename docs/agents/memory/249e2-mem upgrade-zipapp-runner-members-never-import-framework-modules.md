@@ -8,9 +8,12 @@ Memory ID: `249e2-mem upgrade-zipapp-runner-members-never-import-framework-modul
 Kind: `decision`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 184122
 Supersedes: `204bd-mem decision-the-upgrade-zipapp-runner-members-upgrade-bundle-py`
+Checked at: 2026-11-26T06:32:42Z
+Check note: The standalone upgrade bridge has stricter import and bytecode constraints than the installed runtime. Reviewed .wavefoundry/framework/scripts/upgrade_bundle.py:7.
+Check flags: none
 
 ## Summary
 

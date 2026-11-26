@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-20
+Last verified: 2026-11-26
 
 Memory ID: `1vtfy-mem techdocs-matcher-provenance-and-oracle-isolation-move-togeth`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-08-20
-Updated: 2026-08-20
+Updated: 2026-11-26
 Source exploration cost: 3060087
 Source event: `finding:1vry5:ARCH-DEL-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: ARCH-DEL-1 showed that correct matcher code can still ship
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: The audit matcher and excluded oracle still share a provenance boundary; retained hashes and cost comments need review after changes. Reviewed .wavefoundry/framework/scripts/techdocs_audit_lib.py:4.
+Check flags: target_churn
 
 ## Summary
 

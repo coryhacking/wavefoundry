@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-11-26
 
 Memory ID: `204jz-mem index-launchers-must-not-forward-include-prefixes-one-config`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-10-07
-Updated: 2026-10-07
+Updated: 2026-11-26
 Source exploration cost: 161410
 Source event: `decision-log:2038p-bug setup-leaks-framework-tests-into-docs-index:ecbb2ceeeb0db0f8`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Wave 204jj found wf setup forwarding merged docs and code 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:42Z
+Check note: The setup launcher delegates include-prefix policy to the indexer. Duplicating flags in other launchers can diverge from config. Reviewed .wavefoundry/framework/scripts/setup_index.py:2571.
+Check flags: target_churn
 
 ## Summary
 

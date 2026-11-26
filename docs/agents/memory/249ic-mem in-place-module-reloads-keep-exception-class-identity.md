@@ -8,9 +8,12 @@ Memory ID: `249ic-mem in-place-module-reloads-keep-exception-class-identity`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 479414
 Supersedes: `1zcis-mem in-place-module-reloads-keep-exception-class-identity`
+Checked at: 2026-11-26T06:32:42Z
+Check note: The upgrade reload helper updates a module in place. Exception identity can outlive a reload and must be tested accordingly. Reviewed .wavefoundry/framework/scripts/upgrade_extensions.py:1796.
+Check flags: none
 
 ## Summary
 

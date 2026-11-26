@@ -8,10 +8,13 @@ Memory ID: `24an6-mem retrieval-demotion-shares-only-the-history-components`
 Kind: `decision`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 97308
 Supersedes: `1zz0q-mem decision-the-server-impl-py-demotion-site-adopts-the-shared-`
 Retarget reason: bare server_impl.py now matches both scripts/server_impl.py (alias shim) and wf_server/server_impl.py, which holds _doc_demotion_weight
+Checked at: 2026-11-26T06:32:43Z
+Check note: The shared history classifier covers only some demotion inputs. Keep document-specific weighting local to its own policy. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:209.
+Check flags: none
 
 ## Summary
 

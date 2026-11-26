@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1yf4y-mem reload-freshness-of-sibling-modules-purge-entry-plus-a-modul`
 Kind: `environment_gotcha`
 Confidence: 0.9
 Created: 2026-09-19
-Updated: 2026-09-19
+Updated: 2026-11-26
 Source exploration cost: 384402
 Source event: `finding:1y0h1:QA-DEL-2`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated summary is reverification boilerplate. The r
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: Server reload clears its script cache independently of imported sibling modules. Newly added lazy dependencies need a fresh-module check. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:16754.
+Check flags: target_churn
 
 ## Summary
 

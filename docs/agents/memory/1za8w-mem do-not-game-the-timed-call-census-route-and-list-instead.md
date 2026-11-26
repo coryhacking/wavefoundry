@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-11-26
 
 Memory ID: `1za8w-mem do-not-game-the-timed-call-census-route-and-list-instead`
 Kind: `fragile_file`
 Confidence: 0.8
 Created: 2026-09-29
-Updated: 2026-09-29
+Updated: 2026-11-26
 Source exploration cost: 340615
 Source event: `finding:1z8ox:DEL-F2`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: DEL-F2 (ev-del-f2-3): the test runner's git listing lost i
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: The timed process census classifies new calls. Resolve and classify a legitimate operation before changing its timeout behavior. Reviewed .wavefoundry/framework/scripts/tests/test_tree_kill_routing.py:67.
+Check flags: none
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-05
+Last verified: 2026-11-26
 
 Memory ID: `1ufqs-mem region-scanner-tests-need-a-real-target-section-after-the-co`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-08-05
-Updated: 2026-08-05
+Updated: 2026-11-26
 Source exploration cost: 579028
 Source event: `repeated-repairs:1uhcb:test_review_policy.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated candidate's premise does not survive checkin
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: Review-policy fixtures need a genuine subsequent section to distinguish correct section termination from ignoring everything after a fence. Reviewed .wavefoundry/framework/scripts/tests/test_review_policy.py:1478.
+Check flags: target_churn
 
 ## Summary
 

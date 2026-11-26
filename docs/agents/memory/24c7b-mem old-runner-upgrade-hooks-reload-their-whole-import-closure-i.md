@@ -8,9 +8,12 @@ Memory ID: `24c7b-mem old-runner-upgrade-hooks-reload-their-whole-import-closure
 Kind: `decision`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 358042
 Supersedes: `1zf7r-mem old-runner-upgrade-hooks-reload-their-whole-import-closure-i`
+Checked at: 2026-11-26T06:32:45Z
+Check note: The old runner can retain imported dependencies. Reloading just the top-level hook leaves leaf modules at the old version. Reviewed .wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py:1119.
+Check flags: none
 
 ## Summary
 

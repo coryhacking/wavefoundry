@@ -8,8 +8,11 @@ Memory ID: `24bea-mem re-run-the-writing-guide-sentence-measurement-after-releas
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `240wz-rerun-writing-guide`
+Checked at: 2026-11-26T06:32:44Z
+Check note: The retained baseline specifies a post-release sampling window. Keep the operator's revisit condition attached to the writing evidence. Reviewed docs/waves/241c3 writing-guide-sentence-structure/evidence/README.md:39.
+Check flags: none
 
 ## Summary
 

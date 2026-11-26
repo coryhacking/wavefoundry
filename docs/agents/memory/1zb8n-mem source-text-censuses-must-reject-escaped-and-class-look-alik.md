@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-28
+Last verified: 2026-11-26
 
 Memory ID: `1zb8n-mem source-text-censuses-must-reject-escaped-and-class-look-alik`
 Kind: `fragile_file`
 Confidence: 0.8
 Created: 2026-09-28
-Updated: 2026-09-28
+Updated: 2026-11-26
 Source exploration cost: 222676
 Source event: `finding:1z8ou:DEL-F1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: DEL-F1 (ev-del-f1-3): the label-reader census matched a li
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: The label-reader census includes escaped and character-class controls. New regex source matchers need those discriminators. Reviewed .wavefoundry/framework/scripts/tests/test_label_reader_census.py:217.
+Check flags: none
 
 ## Summary
 

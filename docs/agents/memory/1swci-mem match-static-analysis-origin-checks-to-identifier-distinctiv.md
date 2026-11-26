@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1swci-mem match-static-analysis-origin-checks-to-identifier-distinctiv`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1p9q7-enh di-signal-ast-and-language-expansion:01f5decffc4784ba`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The current graph extractor still applies this distinction
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: Graph resolution still distinguishes distinctive idioms from ambiguous names; a single import heuristic cannot cover both. Reviewed .wavefoundry/framework/scripts/graph_indexer.py:7270.
+Check flags: none
 
 ## Summary
 

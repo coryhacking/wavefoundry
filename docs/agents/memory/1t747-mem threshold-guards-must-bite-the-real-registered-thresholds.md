@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-11-26
 
 Memory ID: `1t747-mem threshold-guards-must-bite-the-real-registered-thresholds`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-07-21
-Updated: 2026-07-21
+Updated: 2026-11-26
 Source event: `finding:1seax:slowdown-guard-does-not-exercise-real-budgets`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The drafted summary names only the repair verdict; the dur
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The perf policy keeps actual registered thresholds. Changes need controls on those thresholds as well as the helper. Reviewed .wavefoundry/framework/scripts/tests/perf_budget_policy.py:41.
+Check flags: none
 
 ## Summary
 

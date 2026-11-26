@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1yz02-mem decision-leftover-retired-framework-files-are-warned-about-n`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-09-25
-Updated: 2026-09-25
+Updated: 2026-11-26
 Source exploration cost: 200863
 Source event: `decision-log:1yxwn-ref retire-optional-flat-server-aliases:c71700083e8e765d`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Operator decision recorded in the 1yxwn-ref Decision Log a
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:41Z
+Check note: Retired flat modules have a separate warning and prune owner. New fail-fast handling could change upgrade behavior. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:29407.
+Check flags: target_churn
 
 ## Summary
 

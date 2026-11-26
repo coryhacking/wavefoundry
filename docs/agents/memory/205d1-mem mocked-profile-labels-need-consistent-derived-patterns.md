@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-09
+Last verified: 2026-11-26
 
 Memory ID: `205d1-mem mocked-profile-labels-need-consistent-derived-patterns`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-10-09
-Updated: 2026-10-09
+Updated: 2026-11-26
 Source exploration cost: 1492431
 Source event: `finding:2071n:QA-2071N-01`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: QA-2071N-01 was a real introduced test-fixture defect: res
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:42Z
+Check note: Renamed-profile tests depend on derived patterns as well as restored literals. Restore both when changing test setup. Reviewed .wavefoundry/framework/scripts/tests/test_change_id_path_guard.py:221.
+Check flags: none
 
 ## Summary
 

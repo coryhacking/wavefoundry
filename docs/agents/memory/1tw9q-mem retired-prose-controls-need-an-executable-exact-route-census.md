@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-28
+Last verified: 2026-11-26
 
 Memory ID: `1tw9q-mem retired-prose-controls-need-an-executable-exact-route-census`
 Kind: `failed_attempt`
 Confidence: 0.96
 Created: 2026-07-28
-Updated: 2026-07-28
+Updated: 2026-11-26
 Source exploration cost: 3418720
 Source event: `finding:1tsyx:upgrade-removal-names-wrong-heading-and-validates-clean`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated candidate captures a durable failure mode, b
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: The historical route census carries file/token exceptions. Future retirements need controls for the entire route vocabulary. Reviewed .wavefoundry/framework/scripts/tests/test_events_only_residue_census.py:228.
+Check flags: target_churn
 
 ## Summary
 

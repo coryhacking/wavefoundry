@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-11-26
 
 Memory ID: `20472-mem lifecycle-migration-fixtures-need-profile-aware-carrier-acti`
 Kind: `fragile_file`
 Confidence: 0.95
 Created: 2026-10-08
-Updated: 2026-10-08
+Updated: 2026-11-26
 Source exploration cost: 696912
 Source event: `repeated-repairs:204hi:test_lifecycle_document_names.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: QA-204HI-001 and QA-204HI-002 were independent fixture def
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:42Z
+Check note: The real-render tests exercise the active layout. Alternate roots need a valid declaration and policy marker to reach the intended assertion. Reviewed .wavefoundry/framework/scripts/tests/test_lifecycle_document_names.py:130.
+Check flags: none
 
 ## Summary
 

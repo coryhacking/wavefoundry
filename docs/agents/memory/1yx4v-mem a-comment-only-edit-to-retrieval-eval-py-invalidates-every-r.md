@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1yx4v-mem a-comment-only-edit-to-retrieval-eval-py-invalidates-every-r`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-09-25
-Updated: 2026-09-25
+Updated: 2026-11-26
 Source exploration cost: 200863
 Source event: `finding:1yxyw:DOCS-DEL-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: DOCS-DEL-1 (1yxyw delivery): retrieval_eval._evaluator_ide
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: Retrieval evaluation compares evaluator identities across reports. Even nonfunctional source edits can invalidate comparability. Reviewed .wavefoundry/framework/scripts/retrieval_eval.py:2138.
+Check flags: none
 
 ## Summary
 

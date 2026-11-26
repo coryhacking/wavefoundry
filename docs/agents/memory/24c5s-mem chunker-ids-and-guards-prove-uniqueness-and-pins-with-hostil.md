@@ -8,8 +8,11 @@ Memory ID: `24c5s-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-host
 Kind: `failed_attempt`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `245u8-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-hostil`
+Checked at: 2026-11-26T06:32:45Z
+Check note: Chunker tests span language boundaries and hostile-input guards. Check ID uniqueness independently of output shape. Reviewed .wavefoundry/framework/scripts/tests/test_chunker.py:3018.
+Check flags: none
 
 ## Summary
 

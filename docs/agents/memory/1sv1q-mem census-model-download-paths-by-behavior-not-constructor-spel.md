@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1sv1q-mem census-model-download-paths-by-behavior-not-constructor-spel`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1p92t-bug ca-bundle-non-setup-launchers:6686f5a0c6ae98d2`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The three correction rounds prove literal constructor sear
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: The extra model construction path in indexer.py explains why constructor-name searches alone miss TLS call sites. Reviewed .wavefoundry/framework/scripts/indexer.py:3807.
+Check flags: none
 
 ## Summary
 

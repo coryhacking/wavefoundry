@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-11-26
 
 Memory ID: `1td27-mem interrupted-lifecycle-states-need-a-named-recovery-route`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-07-22
-Updated: 2026-07-22
+Updated: 2026-11-26
 Source event: `finding:1t8la:pending-archive-docs-gate-has-no-recovery`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The generated summary only echoed the lane-clearance prose
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The archive writer validates the renamed body; the operational recovery path still matters for interrupted state. Reviewed .wavefoundry/framework/scripts/memory_records.py:1567.
+Check flags: target_churn
 
 ## Summary
 

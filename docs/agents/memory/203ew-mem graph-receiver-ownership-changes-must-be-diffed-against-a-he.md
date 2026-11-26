@@ -8,10 +8,10 @@ Memory ID: `203ew-mem graph-receiver-ownership-changes-must-be-diffed-against-a-
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-10-08
-Updated: 2026-11-25
-Checked at: 2026-11-25T16:09:22Z
-Check note: checked graph_indexer.py:10514 _ts_call_receiver_unowned and test_graph_call_integrity.py:505 UnownedMemberCallTests exist; summary states its trigger (before changing receiver ownership); probe advice not encoded
-Check flags: target_churn
+Updated: 2026-11-26
+Checked at: 2026-11-26T06:32:41Z
+Check note: Receiver ownership is observable through graph edges. Differential fixtures should compare resolved owners as well as node counts. Reviewed .wavefoundry/framework/scripts/tests/test_graph_call_integrity.py:637.
+Check flags: none
 
 ## Summary
 

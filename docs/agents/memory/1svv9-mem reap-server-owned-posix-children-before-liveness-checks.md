@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1svv9-mem reap-server-owned-posix-children-before-liveness-checks`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1rswx-bug dashboard-zombie-child-reaping:96dc5b5f8d5980d8`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The current POSIX process model still needs explicit child
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: The server distinguishes its own spawned children from synchronous subprocess callers when reaping. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:8437.
+Check flags: none
 
 ## Summary
 

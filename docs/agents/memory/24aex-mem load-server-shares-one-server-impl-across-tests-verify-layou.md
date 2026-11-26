@@ -8,9 +8,12 @@ Memory ID: `24aex-mem load-server-shares-one-server-impl-across-tests-verify-lay
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 56010
 Supersedes: `1z6oc-mem load-server-shares-server-impl-test-order-leaks-need-a-pairw`
+Checked at: 2026-11-26T06:32:43Z
+Check note: Tests that use the shared server can leave layout state behind. Reorder contributing suites to verify isolation. Reviewed .wavefoundry/framework/scripts/tests/test_record_layout_cold_sites.py:118.
+Check flags: none
 
 ## Summary
 

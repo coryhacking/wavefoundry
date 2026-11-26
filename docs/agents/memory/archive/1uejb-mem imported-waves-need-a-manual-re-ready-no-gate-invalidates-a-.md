@@ -1,14 +1,15 @@
 # Imported waves need a manual re-ready; no gate invalidates a receiptless declared wave
 
 Owner: Engineering
-Status: active
+Status: archived
 Last verified: 2026-09-25
 
 Memory ID: `1uejb-mem imported-waves-need-a-manual-re-ready-no-gate-invalidates-a-`
+Superseded by: `24f1q-mem prepare-an-imported-open-wave-that-has-no-review-policy-rece`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-08-04
-Updated: 2026-08-04
+Updated: 2026-11-25
 Source exploration cost: 784014
 Source event: `decision-log:1uf69-bug noop-policy-migration-invalidates-readied-waves:ef4b568a2e7864c4`
 Validation: promote
@@ -18,6 +19,9 @@ Validation rationale: The generated draft is a verbatim Decision Log dump carryi
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Archived: 2026-11-25
+Archive reason: Superseded with the current receipt-check module and the original no-op upgrade decision. Preserve the earlier ownership record.
+Archive path: `docs/agents/memory/archive/1uejb-mem imported-waves-need-a-manual-re-ready-no-gate-invalidates-a-.md`
 
 ## Summary
 

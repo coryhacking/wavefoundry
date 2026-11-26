@@ -8,9 +8,12 @@ Memory ID: `249i9-mem checklist-item-readers-must-change-together`
 Kind: `fragile_file`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 214355
 Supersedes: `1zm01-mem checklist-item-readers-must-change-together`
+Checked at: 2026-11-26T06:32:42Z
+Check note: Checklist parsing feeds multiple lifecycle gates. Readers of tasks and criteria still need to agree on scope. Reviewed .wavefoundry/framework/scripts/lifecycle_gate_support.py:696.
+Check flags: none
 
 ## Summary
 

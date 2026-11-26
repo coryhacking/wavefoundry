@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-11-26
 
 Memory ID: `1u43m-mem reconcile-scan-py-fragility-is-channel-boundaries-four-repai`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-07-31
-Updated: 2026-07-31
+Updated: 2026-11-26
 Source exploration cost: 777948
 Source event: `repeated-repairs:1u2b0:reconcile_scan.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Overlaps the active 1u0yp-mem (same file, same kind, wave 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: The scan reconciler distinguishes report and repair channels. Wrong-channel handling affects more than any one detected text. Reviewed .wavefoundry/framework/scripts/reconcile_scan.py:800.
+Check flags: target_churn
 
 ## Summary
 

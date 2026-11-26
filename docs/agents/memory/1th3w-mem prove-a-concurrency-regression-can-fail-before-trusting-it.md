@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-11-26
 
 Memory ID: `1th3w-mem prove-a-concurrency-regression-can-fail-before-trusting-it`
 Kind: `successful_pattern`
 Confidence: 0.9
 Created: 2026-07-25
-Updated: 2026-07-25
+Updated: 2026-11-26
 Source exploration cost: 270323
 Source event: `finding:1tis8:concurrency-regression-vacuous-and-wrong-path`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Verified against the terminal cycle-2 chain and the execut
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: The concurrency tests propagate worker exceptions through futures. This is a reusable check for timing and failure visibility. Reviewed .wavefoundry/framework/scripts/tests/test_memory_eval.py:165.
+Check flags: none
 
 ## Summary
 

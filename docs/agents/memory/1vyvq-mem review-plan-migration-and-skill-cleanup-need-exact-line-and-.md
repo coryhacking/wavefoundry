@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-22
+Last verified: 2026-11-26
 
 Memory ID: `1vyvq-mem review-plan-migration-and-skill-cleanup-need-exact-line-and-`
 Kind: `fragile_file`
 Confidence: 0.95
 Created: 2026-08-22
-Updated: 2026-08-22
+Updated: 2026-11-26
 Source exploration cost: 3716673
 Source event: `repeated-repairs:1w047:render_agent_surfaces.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Wave 1w047 produced two independent delivery defects in th
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: The renderer migrates existing authored prompt surfaces and removes stale skills. Exact matching still protects project content. Reviewed .wavefoundry/framework/scripts/tests/test_render_agent_surfaces.py:1752.
+Check flags: target_churn
 
 ## Summary
 

@@ -8,9 +8,12 @@ Memory ID: `249cf-mem after-a-repair-batch-re-check-every-record-and-consumer-su
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 3090767
 Supersedes: `1vpm4-mem behavioral-repairs-can-leave-their-records-and-consumers-fal`
+Checked at: 2026-11-26T06:32:42Z
+Check note: Shared review state has multiple consumers. After batch repair, verify the public outcome and the records projecting it. Reviewed docs/architecture/contracts/mcp-tool-surface.md:3293.
+Check flags: none
 
 ## Summary
 

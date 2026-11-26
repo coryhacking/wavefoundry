@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1tx82-mem decision-keep-review-presentations-on-one-structured-authori`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-07-29
-Updated: 2026-07-29
+Updated: 2026-11-26
 Source exploration cost: 1293653
 Source event: `decision-log:1ttp6-enh review-workflow-ergonomics:fab16015b02b8c21`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The decision is durable and current, but the draft targets
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: Status rows and guided actions share structured review evidence. Preserve that dependency for new presentations. Reviewed .wavefoundry/framework/scripts/review_evidence.py:3288.
+Check flags: target_churn
 
 ## Summary
 

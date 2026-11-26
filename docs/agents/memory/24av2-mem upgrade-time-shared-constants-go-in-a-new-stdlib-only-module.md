@@ -8,9 +8,12 @@ Memory ID: `24av2-mem upgrade-time-shared-constants-go-in-a-new-stdlib-only-modu
 Kind: `decision`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 97308
 Supersedes: `1zyhu-mem decision-the-shared-constant-lives-in-a-new-stdlib-only-hist`
+Checked at: 2026-11-26T06:32:44Z
+Check note: The upgrade boundary spans pre-extraction and installed modules; shared constants need imports available on both sides. Reviewed .wavefoundry/framework/scripts/upgrade_extensions.py:4456.
+Check flags: none
 
 ## Summary
 

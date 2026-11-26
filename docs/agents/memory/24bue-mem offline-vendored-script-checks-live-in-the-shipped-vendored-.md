@@ -8,9 +8,12 @@ Memory ID: `24bue-mem offline-vendored-script-checks-live-in-the-shipped-vendore
 Kind: `decision`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 97308
 Supersedes: `2016a-mem decision-coordinator-move-parse-readme-and-offline-problems-`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Offline vendored integrity runs from packaged sources. Keep parsing and checks in shipped code with its install requirements. Reviewed .wavefoundry/framework/scripts/vendored_integrity.py:5.
+Check flags: none
 
 ## Summary
 

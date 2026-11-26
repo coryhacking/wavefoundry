@@ -8,8 +8,11 @@ Memory ID: `24axf-mem runner-identity-capture-and-testing-contract`
 Kind: `decision`
 Confidence: 0.75
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1uamr-mem runner-identity-capture-and-testing-contract`
+Checked at: 2026-11-26T06:32:44Z
+Check note: The runner identity and test-loader path still differ. Verify the actual running module before testing reload behavior. Reviewed .wavefoundry/framework/scripts/server.py:324.
+Check flags: none
 
 ## Summary
 

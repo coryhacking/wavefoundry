@@ -8,9 +8,12 @@ Memory ID: `24bum-mem journal-migration-extension-points-live-in-mcp-tool-extens
 Kind: `decision`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 95829
 Supersedes: `1zz5t-mem decision-the-two-declarations-live-in-mcp-tool-extensions-py`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Journal migration uses declared extension points. A fork can supply templates and hooks without modifying the core migration. Reviewed .wavefoundry/framework/scripts/upgrade_extensions.py:2608.
+Check flags: none
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-11-26
 
 Memory ID: `1zuc1-mem record-root-literals-in-new-tests-trip-the-profile-census`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-10-04
-Updated: 2026-10-04
+Updated: 2026-11-26
 Source exploration cost: 282431
 Source event: `finding:1zrak:DEL-U2`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: DEL-U2: the new fail-closed discovery tests hard-coded doc
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: The profile literal census checks real test sources. Keep the focused census alongside new layout-dependent fixtures. Reviewed .wavefoundry/framework/scripts/tests/test_record_discovery_fail_closed.py:242.
+Check flags: none
 
 ## Summary
 

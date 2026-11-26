@@ -8,10 +8,13 @@ Memory ID: `24c7x-mem absolute-claims-in-new-contract-text-need-the-surviving-ex
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 1158805
 Supersedes: `1tsyl-mem absolute-claims-in-new-contract-text-need-the-surviving-exce`
 Retarget reason: The contract moved from docs/specs/mcp-tool-surface.md to docs/architecture/contracts/mcp-tool-surface.md; the same authority paragraph is at line 2133.
+Checked at: 2026-11-26T06:32:45Z
+Check note: Negative contract claims need to name surviving exceptions. The tool surface still contains phase- and mode-specific behavior. Reviewed docs/architecture/contracts/mcp-tool-surface.md:2077.
+Check flags: none
 
 ## Summary
 

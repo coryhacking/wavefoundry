@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-06
+Last verified: 2026-11-26
 
 Memory ID: `1u8m9-mem fold-census-findings-into-plan-text-before-minting-the-revie`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-08-02
-Updated: 2026-08-05
+Updated: 2026-11-26
 Source exploration cost: 326846
 Source event: `decision-log:1u8o4-ref rename-summary-schema-to-schema-version:094374b7875512eb`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated draft is wave-narrative (it names the specif
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: Readiness policy digests the plan text. Incorporate review-driven scope repairs before claiming a current receipt. Reviewed .wavefoundry/framework/scripts/review_policy.py:421.
+Check flags: none
 
 ## Summary
 

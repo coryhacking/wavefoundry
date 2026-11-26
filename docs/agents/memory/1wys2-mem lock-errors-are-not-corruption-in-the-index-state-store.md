@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-11-26
 
 Memory ID: `1wys2-mem lock-errors-are-not-corruption-in-the-index-state-store`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-09-02
-Updated: 2026-09-02
+Updated: 2026-11-26
 Source exploration cost: 2790236
 Source event: `finding:1wpif:ARCH-DEL-2`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The defect is real and independently verified, but the gen
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: The index store has an explicit rebuild path. Lock contention must stay distinguishable from corruption before any recovery action. Reviewed .wavefoundry/framework/scripts/index_state_store.py:2246.
+Check flags: none
 
 ## Summary
 

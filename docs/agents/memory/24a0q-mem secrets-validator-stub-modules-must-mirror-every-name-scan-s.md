@@ -8,8 +8,11 @@ Memory ID: `24a0q-mem secrets-validator-stub-modules-must-mirror-every-name-scan
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1x6hh-mem validator-stub-modules-must-mirror-every-name-scan-secrets-i`
+Checked at: 2026-11-26T06:32:43Z
+Check note: The scanner tests still construct stub validator modules. Adding imports to the production path changes the stub contract. Reviewed .wavefoundry/framework/scripts/tests/test_scan_secrets.py:325.
+Check flags: none
 
 ## Summary
 

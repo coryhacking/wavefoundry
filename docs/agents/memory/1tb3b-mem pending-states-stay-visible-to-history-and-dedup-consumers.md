@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1tb3b-mem pending-states-stay-visible-to-history-and-dedup-consumers`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-07-22
-Updated: 2026-07-22
+Updated: 2026-11-26
 Source event: `finding:1t8la:pending-archive-disposition-invisible`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The generated summary echoed lane-clearance prose; the dur
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: Memory loading explicitly handles the intermediate archive-body location; history and deduplication both rely on it. Reviewed .wavefoundry/framework/scripts/memory_records.py:445.
+Check flags: target_churn
 
 ## Summary
 

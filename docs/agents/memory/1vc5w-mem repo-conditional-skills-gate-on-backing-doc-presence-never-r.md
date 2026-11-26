@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-15
+Last verified: 2026-11-26
 
 Memory ID: `1vc5w-mem repo-conditional-skills-gate-on-backing-doc-presence-never-r`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-08-15
-Updated: 2026-08-15
+Updated: 2026-11-26
 Source exploration cost: 42695
 Source event: `decision-log:1vbpl-enh wf-package-skill-doc-gated:5e931ebbefbdcba8`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The drafted decision is durable and correct but its auto-d
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Skill registration uses document-dependent availability. Future conditional skills should use their actual prerequisite. Reviewed .wavefoundry/framework/scripts/render_agent_surfaces.py:1010.
+Check flags: target_churn
 
 ## Summary
 

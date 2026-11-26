@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-24
+Last verified: 2026-11-26
 
 Memory ID: `1yy8q-mem repaired-defect-del-hook-name-collision`
 Kind: `failed_attempt`
 Confidence: 0.6
 Created: 2026-09-24
-Updated: 2026-09-24
+Updated: 2026-11-26
 Source exploration cost: 165164
 Source event: `finding:1yzcz:DEL-HOOK-NAME-COLLISION`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Delivery red-team reproduced operator hook deletion and ov
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: The session hook regression uses an operator-owned name as a control. Future hook additions need the same ownership check. Reviewed .wavefoundry/framework/scripts/tests/test_session_start_hook.py:83.
+Check flags: target_churn
 
 ## Summary
 

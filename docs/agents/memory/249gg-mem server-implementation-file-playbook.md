@@ -8,8 +8,11 @@ Memory ID: `249gg-mem server-implementation-file-playbook`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1u8q1-mem server-impl-file-playbook`
+Checked at: 2026-11-26T06:32:42Z
+Check note: The server implementation retains several independent subsystems. Match the verification path to the actual subsystem touched. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:21337.
+Check flags: none
 
 ## Summary
 

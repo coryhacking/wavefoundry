@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-11-26
 
 Memory ID: `1u4qe-mem publisher-authorization-at-begin-build-epoch-is-the-repair-p`
 Kind: `decision`
 Confidence: 0.8
 Created: 2026-08-01
-Updated: 2026-10-16
+Updated: 2026-11-26
 Source exploration cost: 539855
 Source event: `decision-log:1u44m-bug memory-gate-blocks-index-publication-and-summary-reports-false-success:6a407e4a30450334`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The drafted summary is probe-verified but frozen at the pl
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: Publication ownership is checked against the active checkpoint before building; the phase alone cannot grant it. Reviewed .wavefoundry/framework/scripts/index_state_store.py:3335.
+Check flags: none
 
 ## Summary
 

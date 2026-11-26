@@ -8,10 +8,10 @@ Memory ID: `1y7ig-mem verify-package-contents-through-the-real-release-and-injec
 Kind: `review_finding`
 Confidence: 0.6
 Created: 2026-09-17
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1tzsp-mem`
-Checked at: 2026-11-25T16:09:22Z
-Check note: Checked build_pack.py and tests/test_build_pack.py: the root install-log absence is asserted (:58, :1954), but no test builds with inject_install_templates=True, so the injected-member control is still needed; the summary already states its situation.
+Checked at: 2026-11-26T06:32:40Z
+Check note: The real builder accepts install-template injection. Check retired members in the resulting ZIP in addition to public artifact count. Reviewed .wavefoundry/framework/scripts/tests/test_build_pack.py:1652.
 Check flags: none
 
 ## Summary

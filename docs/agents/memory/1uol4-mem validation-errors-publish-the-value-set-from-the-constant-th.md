@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-06
+Last verified: 2026-11-26
 
 Memory ID: `1uol4-mem validation-errors-publish-the-value-set-from-the-constant-th`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-08-06
-Updated: 2026-08-06
+Updated: 2026-11-26
 Source exploration cost: 48070
 Source event: `decision-log:1ul77-enh validation-errors-carry-their-allowed-values:125dbcf2bc3159a6`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The drafted candidate is a faithful restatement of one Dec
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Validators use allowed_values_suffix. Error text and the active registry still need to agree when policy changes. Reviewed .wavefoundry/framework/scripts/wave_lint_lib/wave_validators.py:2188.
+Check flags: target_churn
 
 ## Summary
 

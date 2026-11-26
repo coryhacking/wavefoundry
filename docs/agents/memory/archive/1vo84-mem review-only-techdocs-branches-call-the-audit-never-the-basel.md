@@ -1,14 +1,14 @@
 # Review-only TechDocs branches call the audit, never the baseline writer
 
 Owner: Engineering
-Status: active
+Status: archived
 Last verified: 2026-08-19
 
 Memory ID: `1vo84-mem review-only-techdocs-branches-call-the-audit-never-the-basel`
 Kind: `decision`
 Confidence: 0.95
 Created: 2026-08-19
-Updated: 2026-08-19
+Updated: 2026-11-25
 Source exploration cost: 3090767
 Source event: `decision-log:1vmt2-enh techdocs-audit-tool-and-review-only-branch:3197ef5d31325978`
 Validation: promote
@@ -18,6 +18,12 @@ Validation rationale: The decision is durable and current, but the generated can
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:34:25Z
+Check note: The read-only procedure in docs/prompts/refresh-techdocs.prompt.md explicitly prohibits both baseline modes and explains how the audit reports trio ownership. The canonical workflow carries the protected decision.
+Check flags: target_churn
+Archived: 2026-11-25
+Archive reason: The read-only procedure in docs/prompts/refresh-techdocs.prompt.md explicitly prohibits both baseline modes and explains how the audit reports trio ownership. The canonical workflow carries the protected decision.
+Archive path: `docs/agents/memory/archive/1vo84-mem review-only-techdocs-branches-call-the-audit-never-the-basel.md`
 
 ## Summary
 

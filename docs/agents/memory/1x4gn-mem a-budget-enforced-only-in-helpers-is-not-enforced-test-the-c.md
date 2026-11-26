@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-04
+Last verified: 2026-11-26
 
 Memory ID: `1x4gn-mem a-budget-enforced-only-in-helpers-is-not-enforced-test-the-c`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-09-04
-Updated: 2026-09-04
+Updated: 2026-11-26
 Source exploration cost: 458752
 Source event: `finding:1wpih:QA-DEL-2`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Verified against both the evidence chain and the current t
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: The checkpoint ledger documents actual consumed slots. Testing a budget helper alone misses the operational entry point. Reviewed docs/evals/checkpoint-ledger.jsonl:9.
+Check flags: target_churn
 
 ## Summary
 

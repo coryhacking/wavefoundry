@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-28
+Last verified: 2026-11-26
 
 Memory ID: `1z75t-mem chunk-metadata-changes-keep-the-hash-constant-and-exempt-rec`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-09-28
-Updated: 2026-09-28
+Updated: 2026-11-26
 Source exploration cost: 102181
 Source event: `repeated-repairs:1z8tz:tests/test_chunk_tags.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Readiness found the naive plan (exclude tags from the hash
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: Chunk identity participates in both registry reuse and embedding lookup; metadata changes need a migration-impact check. Reviewed .wavefoundry/framework/scripts/indexer.py:5898.
+Check flags: none
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-11-26
 
 Memory ID: `1zic3-mem source-rewriting-test-helpers-need-escape-proof-tests-and-va`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-11-26
 Source exploration cost: 134809
 Source event: `repeated-repairs:1zim5:tests/test_profile_support.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The three repairs were about the profile infrastructure's 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: Profile tests operate on copied trees. Negative controls must demonstrate copying before permitting source rewrites. Reviewed .wavefoundry/framework/scripts/tests/test_profile_support.py:822.
+Check flags: none
 
 ## Summary
 

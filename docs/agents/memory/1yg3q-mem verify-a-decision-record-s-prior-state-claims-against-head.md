@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-19
+Last verified: 2026-11-26
 
 Memory ID: `1yg3q-mem verify-a-decision-record-s-prior-state-claims-against-head`
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-09-19
-Updated: 2026-09-19
+Updated: 2026-11-26
 Source exploration cost: 384402
 Source event: `finding:1y0h1:QA-DEL-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated summary is reverification boilerplate. The r
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Prior-state claims in decision records can be checked against the existing wrapper-order documentation and tests. Reviewed .wavefoundry/framework/scripts/tests/test_tool_surface_golden.py:14.
+Check flags: target_churn
 
 ## Summary
 

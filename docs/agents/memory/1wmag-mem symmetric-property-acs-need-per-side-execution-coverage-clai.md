@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-29
+Last verified: 2026-11-26
 
 Memory ID: `1wmag-mem symmetric-property-acs-need-per-side-execution-coverage-clai`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-08-29
-Updated: 2026-08-29
+Updated: 2026-11-26
 Source exploration cost: 54015
 Source event: `finding:1wip2:DOCS-DEL-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Verified against the current tree: both cross-reference di
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: The build preflight and its published documentation are separate sites. A bidirectional requirement needs both checked. Reviewed .wavefoundry/framework/scripts/tests/test_build_pack.py:807.
+Check flags: target_churn
 
 ## Summary
 

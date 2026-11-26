@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-17
+Last verified: 2026-11-26
 
 Memory ID: `1vn8p-mem install-log-rows-are-never-renumbered-seed-012-mirrors-the-t`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-08-17
-Updated: 2026-08-17
+Updated: 2026-11-26
 Source exploration cost: 3068146
 Source event: `decision-log:1viyt-bug install-log-and-install-seed-reference-drift:be0718480e9dc9dd`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Verified against install/install-log-format.md line 32 ("E
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: The install-log parser accepts numbered gaps; existing row numbers matter to interrupted installs. Reviewed .wavefoundry/framework/scripts/tests/test_install_log_lib.py:185.
+Check flags: target_churn
 
 ## Summary
 

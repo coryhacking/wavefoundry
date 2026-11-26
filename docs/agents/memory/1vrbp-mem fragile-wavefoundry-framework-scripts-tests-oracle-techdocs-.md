@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-10
+Last verified: 2026-11-26
 
 Memory ID: `1vrbp-mem fragile-wavefoundry-framework-scripts-tests-oracle-techdocs-`
 Kind: `fragile_file`
 Confidence: 0.6
 Created: 2026-08-20
-Updated: 2026-08-20
+Updated: 2026-11-26
 Source exploration cost: 3060087
 Source event: `repeated-repairs:1vry5:.wavefoundry/framework/scripts/tests/oracle/techdocs_boundary_differential.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: QA-DEL-1 and QA-DEL-2 were two independent repairs to this
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Prior QA repairs concern the independent TechDocs oracle. Its excluded test location and separate dependencies still merit explicit verification. Reviewed .wavefoundry/framework/scripts/tests/oracle/techdocs_boundary_differential.py:13.
+Check flags: none
 
 ## Summary
 

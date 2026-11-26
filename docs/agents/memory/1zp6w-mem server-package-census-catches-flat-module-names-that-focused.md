@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-11-26
 
 Memory ID: `1zp6w-mem server-package-census-catches-flat-module-names-that-focused`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-10-04
-Updated: 2026-10-04
+Updated: 2026-11-26
 Source exploration cost: 470529
 Source event: `finding:1zqe4:DEL-F1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Generated summary was empty of content. Two delivery findi
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: Package tests protect the shim/module boundary. Focused feature tests can pass while the module-name census fails. Reviewed .wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py:29.
+Check flags: target_churn
 
 ## Summary
 

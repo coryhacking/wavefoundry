@@ -8,9 +8,12 @@ Memory ID: `249st-mem prompt-renames-go-through-prompt-name-overrides`
 Kind: `decision`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 68624
 Supersedes: `1zzsa-mem decision-explicit-override-map-keyed-by-today-s-slug-with-a-`
+Checked at: 2026-11-26T06:32:43Z
+Check note: The vocabulary profile retains registered prompt keys separately from their chosen presentation; rename through the profile mapping. Reviewed .wavefoundry/framework/scripts/vocabulary_profile.py:230.
+Check flags: none
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-04
+Last verified: 2026-11-26
 
 Memory ID: `1x40o-mem a-two-clause-acceptance-criterion-can-read-as-met-on-one-cla`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-09-04
-Updated: 2026-09-04
+Updated: 2026-11-26
 Source exploration cost: 458752
 Source event: `finding:1wpih:QA-DEL-4`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Verified against the evidence chain and the current tree. 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: The graph evaluation has separately named report artifacts. Check their physical existence and agreement before marking a composite criterion met. Reviewed .wavefoundry/framework/scripts/tests/test_graph_quality_eval.py:976.
+Check flags: target_churn
 
 ## Summary
 

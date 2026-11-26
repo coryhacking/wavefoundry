@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-29
+Last verified: 2026-11-26
 
 Memory ID: `1tuc9-mem supported-floor-upgrades-use-a-standalone-protocol-bridge`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-07-29
-Updated: 2026-07-29
+Updated: 2026-11-26
 Source exploration cost: 2258580
 Source event: `decision-log:1tsbu-enh review-policy-and-delivery-evaluator:f7cedeb51666068e`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The decision log and current implementation agree, but the
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The build still emits a standalone bootstrap and bridge. Its supported floor must be exercised independently of installed helpers. Reviewed .wavefoundry/framework/scripts/build_pack.py:1262.
+Check flags: target_churn
 
 ## Summary
 

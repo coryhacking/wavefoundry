@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-27
+Last verified: 2026-11-26
 
 Memory ID: `1wgg5-mem no-units-rules-must-not-become-no-coverage-rules-oracles-nee`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-08-27
-Updated: 2026-08-27
+Updated: 2026-11-26
 Source exploration cost: 368764
 Source event: `finding:1wik9:RT-DEL-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Verified against the current tree: chunk_proto's residue n
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: The coverage oracle explicitly exercises detached comments. Future exclusions need checks for unintended loss of coverage. Reviewed docs/waves/1wik9 fenced-diagram-and-spec-retrieval/evidence/coverage_differential_1wfso.py:44.
+Check flags: target_churn
 
 ## Summary
 

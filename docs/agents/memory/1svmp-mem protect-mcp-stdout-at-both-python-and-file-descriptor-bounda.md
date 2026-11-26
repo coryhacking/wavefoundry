@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1svmp-mem protect-mcp-stdout-at-both-python-and-file-descriptor-bounda`
 Kind: `environment_gotcha`
 Confidence: 0.98
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1p9io-bug windows-stdout-purity:e4f5e70483942e76`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: Current graph rebuild and model paths still cross the JSON
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: The graph query combines fd-level isolation with Python stdout redirection; future native callers need the same boundary. Reviewed .wavefoundry/framework/scripts/graph_query.py:334.
+Check flags: none
 
 ## Summary
 

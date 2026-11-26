@@ -8,8 +8,11 @@ Memory ID: `249pi-mem the-re2-shaped-secrets-ruleset-runs-on-python-s-backtracki
 Kind: `environment_gotcha`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1x3m2-mem the-secrets-ruleset-is-re2-shaped-but-runs-on-a-backtracking`
+Checked at: 2026-11-26T06:32:42Z
+Check note: The Python scanner processes RE2-shaped rules; imported pattern features still require explicit compatibility and bounded handling. Reviewed .wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py:545.
+Check flags: none
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-23
+Last verified: 2026-11-26
 
 Memory ID: `1w0ob-mem reconciliation-fence-consumers-must-share-strict-closing-sem`
 Kind: `fragile_file`
 Confidence: 0.95
 Created: 2026-08-23
-Updated: 2026-08-23
+Updated: 2026-11-26
 Source exploration cost: 982767
 Source event: `finding:1w3br:CODE-DEL-FENCE-CLOSE-CONTEXT-001`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated summary was truncated and mixed durable pars
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Heading context contributes to persisted finding keys. Fixture coverage must keep both fence consumers synchronized. Reviewed .wavefoundry/framework/scripts/reconcile_scan.py:1529.
+Check flags: target_churn
 
 ## Summary
 

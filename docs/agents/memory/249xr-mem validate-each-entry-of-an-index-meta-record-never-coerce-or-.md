@@ -8,8 +8,11 @@ Memory ID: `249xr-mem validate-each-entry-of-an-index-meta-record-never-coerce-o
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1x729-mem a-store-meta-reader-that-validates-only-the-outer-shape-serv`
+Checked at: 2026-11-26T06:32:43Z
+Check note: Stored JSON metadata feeds served diagnostics; reject malformed fields independently before exposing state. Reviewed .wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py:18714.
+Check flags: none
 
 ## Summary
 

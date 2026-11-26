@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-11-26
 
 Memory ID: `1zb26-mem background-build-pid-can-hold-the-wf-cli-pid-not-a-builder`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-09-29
-Updated: 2026-09-29
+Updated: 2026-11-26
 Source exploration cost: 164401
 Source event: `finding:1za2y:DEL-F1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: DEL-F1 was a regression found only in delivery: the new bu
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: Background PID evidence can identify a CLI launcher; liveness checks need executable identity and start time. Reviewed .wavefoundry/framework/scripts/wf_server/index_handlers.py:174.
+Check flags: target_churn
 
 ## Summary
 

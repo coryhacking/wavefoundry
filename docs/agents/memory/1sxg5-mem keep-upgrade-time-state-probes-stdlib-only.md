@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1sxg5-mem keep-upgrade-time-state-probes-stdlib-only`
 Kind: `dependency_gotcha`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1rvfx-bug upgrade-graph-version-transition-log:6cbe53f749f757c2`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: Upgrade executes across a framework replacement boundary, 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: Pre-extraction upgrade paths still depend on the installed runtime and need lightweight state probes. Reviewed .wavefoundry/framework/scripts/upgrade_wavefoundry.py:3362.
+Check flags: none
 
 ## Summary
 

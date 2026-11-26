@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-04
+Last verified: 2026-11-26
 
 Memory ID: `1ug1d-mem repo-tree-census-pins-home-in-the-census-module-key-on-the-c`
 Kind: `decision`
 Confidence: 0.8
 Created: 2026-08-04
-Updated: 2026-08-04
+Updated: 2026-11-26
 Source exploration cost: 421254
 Source event: `decision-log:1ug7o-bug seed-160-misstates-legacy-delivery-mode-mapping:9109a2ac5c03567d`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The drafted candidate is right about the home and the clai
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The residue census owns historical token allowances. Extending that census preserves the shipped-file scope. Reviewed .wavefoundry/framework/scripts/tests/test_events_only_residue_census.py:256.
+Check flags: target_churn
 
 ## Summary
 

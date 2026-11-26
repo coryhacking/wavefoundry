@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1x69c-mem reap-deferral-and-preservation-live-in-the-python-build-inde`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-09-04
-Updated: 2026-09-04
+Updated: 2026-11-26
 Source exploration cost: 1539381
 Source event: `decision-log:1u8o3-debt eligibility-reap-mass-removal-hazard:77c224882b189d20`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The draft copied the Decision Log row written before SEC-R
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: The server surfaces reap state through persisted build status. A detached child return value alone cannot reach the caller. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:10402.
+Check flags: target_churn
 
 ## Summary
 

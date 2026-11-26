@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-11-26
 
 Memory ID: `1zrq6-mem hooks-and-setup-survive-a-python-minor-upgrade-through-the-v`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-10-04
-Updated: 2026-10-04
+Updated: 2026-11-26
 Source exploration cost: 470529
 Source event: `decision-log:1zrag-bug setup-repairs-python-upgrade-and-stuck-migration:bf95dd3990983a9a`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Generated candidate targeted indexer.py, but the decision 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:41Z
+Check note: Hook bootstrap allows a version mismatch while emitting recovery guidance. Startup diagnostics must survive a mismatched venv. Reviewed .wavefoundry/framework/scripts/render_platform_surfaces.py:810.
+Check flags: target_churn
 
 ## Summary
 

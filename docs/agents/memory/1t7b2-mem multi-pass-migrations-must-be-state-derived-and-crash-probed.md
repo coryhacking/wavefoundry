@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-11-26
 
 Memory ID: `1t7b2-mem multi-pass-migrations-must-be-state-derived-and-crash-probed`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-07-22
-Updated: 2026-07-22
+Updated: 2026-11-26
 Source event: `repeated-repairs:1t9w8:memory_records.py`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The fragile-file framing is too blunt: both wave 1t9w8 rep
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: Memory migration reads on-disk names and mapping state; restart checks still need partially applied passes. Reviewed .wavefoundry/framework/scripts/memory_records.py:569.
+Check flags: none
 
 ## Summary
 

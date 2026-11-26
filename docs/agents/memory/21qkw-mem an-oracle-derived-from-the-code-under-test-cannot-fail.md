@@ -8,9 +8,9 @@ Memory ID: `21qkw-mem an-oracle-derived-from-the-code-under-test-cannot-fail`
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-10-27
-Updated: 2026-11-25
-Checked at: 2026-11-25T16:09:22Z
-Check note: checked summary states trigger and action; test_dashboard_server.py:5821 DashboardStaleRuntimeReportingTests test exists; no duplicate active record
+Updated: 2026-11-26
+Checked at: 2026-11-26T06:32:42Z
+Check note: The dashboard regression pins independent expected labels. The same testing rule applies whenever implementation and oracle could share an error. Reviewed .wavefoundry/framework/scripts/tests/test_dashboard_server.py:5886.
 Check flags: none
 
 ## Summary

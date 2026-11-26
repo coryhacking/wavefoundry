@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-04
+Last verified: 2026-11-26
 
 Memory ID: `1x70q-mem graph-indexer-py-three-readers-of-the-walk-derived-current-s`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-09-04
-Updated: 2026-09-04
+Updated: 2026-11-26
 Source exploration cost: 1539381
 Source event: `repeated-repairs:1x54z:graph_indexer.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The draft counted repairs without the mechanism. The verif
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Graph pruning and document-link repair use the current path set differently; changes to walk truth need both consumers checked. Reviewed .wavefoundry/framework/scripts/graph_indexer.py:2395.
+Check flags: none
 
 ## Summary
 

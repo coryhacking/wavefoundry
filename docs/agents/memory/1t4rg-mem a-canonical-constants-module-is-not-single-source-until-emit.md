@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1t4rg-mem a-canonical-constants-module-is-not-single-source-until-emit`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-07-21
-Updated: 2026-07-21
+Updated: 2026-11-26
 Source event: `finding:1seax:contract-vocabularies-not-consumed-by-handlers`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The drafted summary is accurate but names only the repair 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: The public constants still have several emitting consumers; a vocabulary declaration alone does not verify each response. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:5639.
+Check flags: target_churn
 
 ## Summary
 

@@ -8,8 +8,11 @@ Memory ID: `249ga-mem patch-the-impl-module-not-the-runner`
 Kind: `environment_gotcha`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1t78a-mem patch-the-impl-module-not-the-runner`
+Checked at: 2026-11-26T06:32:42Z
+Check note: server.py remains a runner shim. When testing implementation calls, patch the module that actually owns the binding. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:21337.
+Check flags: none
 
 ## Summary
 

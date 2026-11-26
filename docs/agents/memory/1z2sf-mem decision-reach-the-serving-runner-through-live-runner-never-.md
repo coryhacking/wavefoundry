@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1z2sf-mem decision-reach-the-serving-runner-through-live-runner-never-`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-09-25
-Updated: 2026-09-25
+Updated: 2026-11-26
 Source event: `decision-log:1yxnc-bug post-upgrade-reload-imports-second-runner:225762d571e55f6c`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: Verified in the 1yxnc Decision Log and the delivered code:
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:41Z
+Check note: The runner and handler modules can have different identities. Locating the already serving runner remains necessary after reload. Reviewed .wavefoundry/framework/scripts/wf_server/upgrade_handlers.py:1683.
+Check flags: target_churn
 
 ## Summary
 

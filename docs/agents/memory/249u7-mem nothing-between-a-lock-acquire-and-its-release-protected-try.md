@@ -8,9 +8,12 @@ Memory ID: `249u7-mem nothing-between-a-lock-acquire-and-its-release-protected-t
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 335885
 Supersedes: `1zcun-mem nothing-between-a-lock-acquire-and-its-release-protected-try`
+Checked at: 2026-11-26T06:32:43Z
+Check note: The interrupt-on-acquire test shows why even metadata construction belongs inside cleanup coverage after lock acquisition. Reviewed .wavefoundry/framework/scripts/tests/test_lifecycle_mutation_lock.py:422.
+Check flags: none
 
 ## Summary
 

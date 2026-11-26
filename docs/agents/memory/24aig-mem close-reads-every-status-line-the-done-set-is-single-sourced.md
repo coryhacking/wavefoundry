@@ -8,9 +8,12 @@ Memory ID: `24aig-mem close-reads-every-status-line-the-done-set-is-single-sourc
 Kind: `decision`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 214355
 Supersedes: `1zm7x-mem close-reads-every-status-line-done-set-is-single-sourced`
+Checked at: 2026-11-26T06:32:43Z
+Check note: Lifecycle status can appear on multiple lines; compare all owned values using the shared done-set instead of reading only the first. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:14982.
+Check flags: none
 
 ## Summary
 

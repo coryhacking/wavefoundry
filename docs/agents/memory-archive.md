@@ -18,6 +18,15 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Successor: `1t018-mem place-unittest-main-at-eof-in-per-file-test-modules`
 - Archive path: `docs/agents/memory/archive/1sxln-mem mid-file-unittest-main-hides-later-tests.md`
 
+## 1syzx-mem close-requires-explicit-disposition-for-evidence-derived-mem
+
+- Title: `Close requires explicit disposition for evidence-derived memory`
+- Kind: `failed_attempt`
+- Targets: `.wavefoundry/framework/scripts/wf_server/server_impl.py`, `.wavefoundry/framework/scripts/tests/test_memory_records.py`
+- Archived: `2026-11-25`
+- Successor: `none`
+- Archive path: `docs/agents/memory/archive/1syzx-mem close-requires-explicit-disposition-for-evidence-derived-mem.md`
+
 ## 1t0q0-mem canonical-suite-status-governs-delivery-evidence
 
 - Title: `Canonical suite status governs delivery evidence`
@@ -351,6 +360,15 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Successor: `none`
 - Archive path: `docs/agents/memory/archive/1uczr-mem repaired-defect-standard-feature-pack-omits-online-verificat.md`
 
+## 1uejb-mem imported-waves-need-a-manual-re-ready-no-gate-invalidates-a-
+
+- Title: `Imported waves need a manual re-ready; no gate invalidates a receiptless declared wave`
+- Kind: `decision`
+- Targets: `.wavefoundry/framework/scripts/wf_server/server_impl.py`, `.wavefoundry/framework/scripts/review_policy_upgrade.py`
+- Archived: `2026-11-25`
+- Successor: `24f1q-mem prepare-an-imported-open-wave-that-has-no-review-policy-rece`
+- Archive path: `docs/agents/memory/archive/1uejb-mem imported-waves-need-a-manual-re-ready-no-gate-invalidates-a-.md`
+
 ## 1uj4o-mem decision-carry-the-current-judgment-template-and-a-blocking-
 
 - Title: `Decision: Carry the current judgment template and a blocking constrai…`
@@ -396,6 +414,15 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Successor: `none`
 - Archive path: `docs/agents/memory/archive/1vcgo-mem cleanup-review-mislabeled-a-live-degradation-path-as-dead-co.md`
 
+## 1vjt5-mem cleanup-and-summary-run-from-the-extracted-runner-do-not-hoo
+
+- Title: `Cleanup and summary run from the extracted runner; do not hook them for the delivering upgrade`
+- Kind: `failed_attempt`
+- Targets: `.wavefoundry/framework/scripts/upgrade_wavefoundry.py`, `.wavefoundry/framework/scripts/upgrade_extensions.py`, `.wavefoundry/framework/scripts/tests/test_agent_surface_integrity.py`
+- Archived: `2026-11-25`
+- Successor: `24f1e-mem give-each-upgrade-advisory-one-owner-across-primary-and-clea`
+- Archive path: `docs/agents/memory/archive/1vjt5-mem cleanup-and-summary-run-from-the-extracted-runner-do-not-hoo.md`
+
 ## 1vkk1-mem retired-pack-members-need-an-exact-absence-assertion-on-a-re
 
 - Title: `Retired pack members need an exact absence assertion on a real injected build, not just an allowlist edit`
@@ -422,6 +449,15 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Archived: `2026-11-25`
 - Successor: `24bza-mem a-citation-sweep-must-enumerate-every-locator-form-and-use-a`
 - Archive path: `docs/agents/memory/archive/1vo1a-mem a-citation-sweep-must-cover-every-surface-form-run-last-and-.md`
+
+## 1vo84-mem review-only-techdocs-branches-call-the-audit-never-the-basel
+
+- Title: `Review-only TechDocs branches call the audit, never the baseline writer`
+- Kind: `decision`
+- Targets: `.wavefoundry/framework/seeds/178-refresh-techdocs.prompt.md`, `docs/prompts/refresh-techdocs.prompt.md`, `.wavefoundry/framework/scripts/techdocs_baseline.py`
+- Archived: `2026-11-25`
+- Successor: `none`
+- Archive path: `docs/agents/memory/archive/1vo84-mem review-only-techdocs-branches-call-the-audit-never-the-basel.md`
 
 ## 1vpm4-mem behavioral-repairs-can-leave-their-records-and-consumers-fal
 
@@ -548,6 +584,15 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Archived: `2026-11-25`
 - Successor: `249xr-mem validate-each-entry-of-an-index-meta-record-never-coerce-or-`
 - Archive path: `docs/agents/memory/archive/1x729-mem a-store-meta-reader-that-validates-only-the-outer-shape-serv.md`
+
+## 1x78p-mem indexer-py-the-reap-is-not-the-first-deleter-so-walk-output-
+
+- Title: `indexer.py: the reap is not the first deleter, so walk-output guards must reach every consumer`
+- Kind: `fragile_file`
+- Targets: `.wavefoundry/framework/scripts/indexer.py`, `.wavefoundry/framework/scripts/graph_indexer.py`
+- Archived: `2026-11-25`
+- Successor: `24d31-mem preserve-unreadable-paths-before-every-index-removal-consume`
+- Archive path: `docs/agents/memory/archive/1x78p-mem indexer-py-the-reap-is-not-the-first-deleter-so-walk-output-.md`
 
 ## 1xgfv-mem pin-historical-changelog-assertions-to-their-owning-release
 

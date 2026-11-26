@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-11-26
 
 Memory ID: `1tn45-mem upgrade-refusal-messages-must-name-a-marker-clearing-recover`
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-07-27
-Updated: 2026-07-27
+Updated: 2026-11-26
 Source exploration cost: 741008
 Source event: `finding:1tomw:DF3-sidecar-refusal-recovery-message-dead-end`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated candidate carries only the reverification ra
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: Upgrade retains a distinct review-sidecar failure branch; a useful recovery instruction must clear the actual marker. Reviewed .wavefoundry/framework/scripts/upgrade_wavefoundry.py:6449.
+Check flags: target_churn
 
 ## Summary
 

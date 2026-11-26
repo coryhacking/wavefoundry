@@ -8,9 +8,12 @@ Memory ID: `24bmn-mem lifecycle-lock-guard-steps-each-need-their-own-test`
 Kind: `fragile_file`
 Confidence: 0.85
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 244563
 Supersedes: `1zkyn-mem lifecycle-lock-guard-steps-each-need-their-own-test`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Lifecycle lock tests cover separate hold and probe ordering cases; one end-to-end pass cannot distinguish all failure modes. Reviewed .wavefoundry/framework/scripts/tests/test_lifecycle_mutation_lock.py:1097.
+Check flags: none
 
 ## Summary
 

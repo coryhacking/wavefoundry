@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-11-26
 
 Memory ID: `1zbqw-mem never-open-the-index-build-lock-file-while-this-process-may-`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-09-29
-Updated: 2026-09-29
+Updated: 2026-11-26
 Source exploration cost: 164401
 Source event: `finding:1za2y:DEL-F2`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: DEL-F2: closing any descriptor of a POSIX record-locked fi
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:41Z
+Check note: The index lock metadata reader and registry handle POSIX per-process lock semantics. A second descriptor can disturb the holder. Reviewed .wavefoundry/framework/scripts/indexer.py:322.
+Check flags: none
 
 ## Summary
 

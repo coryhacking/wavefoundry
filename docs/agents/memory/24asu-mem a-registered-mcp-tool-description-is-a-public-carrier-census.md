@@ -8,9 +8,12 @@ Memory ID: `24asu-mem a-registered-mcp-tool-description-is-a-public-carrier-cens
 Kind: `review_finding`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 3068146
 Supersedes: `1vlnj-mem a-registered-mcp-tool-description-is-a-public-carrier-own-it`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Live MCP descriptions and generated help have separate consumers. When behavior changes, verify both public carriers. Reviewed .wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py:14234.
+Check flags: none
 
 ## Summary
 

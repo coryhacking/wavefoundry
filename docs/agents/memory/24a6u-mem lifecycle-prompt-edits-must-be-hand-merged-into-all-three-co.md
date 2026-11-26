@@ -8,9 +8,12 @@ Memory ID: `24a6u-mem lifecycle-prompt-edits-must-be-hand-merged-into-all-three-
 Kind: `fragile_file`
 Confidence: 0.85
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Action delta: Applies when a plan or change edits lifecycle prompt text: list all three copies in the plan and merge the same edit into each, then assert the text in each copy, instead of editing the seed and re-rendering.
 Validation rationale: Readiness of wave 24bik caught a plan that edited only seed 240 and re-rendered; MemoryReviewPromptTests shows rendering preserves an existing prompt, and MemoryAdmissionGuidanceTests.CARRIERS lists the three copies.
+Checked at: 2026-11-26T06:32:43Z
+Check note: Lifecycle baseline rendering distinguishes installed prose from authored copies. Review all three carriers after a prompt change. Reviewed .wavefoundry/framework/scripts/render_agent_surfaces.py:5174.
+Check flags: none
 
 ## Summary
 

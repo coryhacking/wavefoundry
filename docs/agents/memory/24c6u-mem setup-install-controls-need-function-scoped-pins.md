@@ -8,9 +8,12 @@ Memory ID: `24c6u-mem setup-install-controls-need-function-scoped-pins`
 Kind: `fragile_file`
 Confidence: 0.85
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 73697
 Supersedes: `1zliu-mem setup-install-controls-need-function-scoped-pins`
+Checked at: 2026-11-26T06:32:45Z
+Check note: _install_deps has both invocation and control-flow expectations. Changing setup ordering needs checks at each call site. Reviewed .wavefoundry/framework/scripts/tests/test_server_tools.py:1000.
+Check flags: none
 
 ## Summary
 

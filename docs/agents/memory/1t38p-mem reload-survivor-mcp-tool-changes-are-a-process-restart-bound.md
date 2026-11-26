@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-11-26
 
 Memory ID: `1t38p-mem reload-survivor-mcp-tool-changes-are-a-process-restart-bound`
 Kind: `environment_gotcha`
 Confidence: 0.9
 Created: 2026-07-20
-Updated: 2026-07-20
+Updated: 2026-11-26
 Source event: `decision-log:1t3gs-ref mcp-tool-prefix-rename:1cf715487e05e4dd`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: Lived this session: the in-memory old-name survivor trippe
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:38Z
+Check note: The runner explicitly excludes wf_reload_mcp from its refresh set. A fresh process is needed to verify changes to it. Reviewed .wavefoundry/framework/scripts/server.py:625.
+Check flags: target_churn
 
 ## Summary
 

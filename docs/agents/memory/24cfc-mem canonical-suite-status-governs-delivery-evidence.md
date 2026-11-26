@@ -8,8 +8,11 @@ Memory ID: `24cfc-mem canonical-suite-status-governs-delivery-evidence`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1t0q0-mem canonical-suite-status-governs-delivery-evidence`
+Checked at: 2026-11-26T06:32:45Z
+Check note: A focused pass cannot replace a failed canonical receipt. The final-tree qualification in wave 24a51 exercised this distinction again. Reviewed .wavefoundry/framework/scripts/run_tests.py:16.
+Check flags: none
 
 ## Summary
 

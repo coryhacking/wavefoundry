@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1z2ma-mem clearing-the-context-efficiency-gap-must-mark-every-wave-tha`
 Kind: `fragile_file`
 Confidence: 0.9
 Created: 2026-09-25
-Updated: 2026-09-25
+Updated: 2026-11-26
 Source exploration cost: 48347
 Source event: `decision-log:1z1vu-bug context-efficiency-gap-permanent-and-unexplained:f212d52261e56f66`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated candidate recorded only the CLI-versus-MCP-t
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:41Z
+Check note: Context efficiency handles accounting gaps store-wide. A newly touched wave cannot be treated as the full affected set. Reviewed .wavefoundry/framework/scripts/context_efficiency.py:3633.
+Check flags: none
 
 ## Summary
 

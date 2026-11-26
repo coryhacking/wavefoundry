@@ -8,9 +8,12 @@ Memory ID: `24c7w-mem pin-the-contract-not-one-syntactic-shape`
 Kind: `failed_attempt`
 Confidence: 0.75
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 104280
 Supersedes: `1t4o2-mem repaired-defect-fallback-reason-census-still-incomplete`
+Checked at: 2026-11-26T06:32:45Z
+Check note: A registry exclusion pin should survive syntax-only changes; test the forbidden vocabulary rather than one expression spelling. Reviewed .wavefoundry/framework/scripts/tests/test_docs_constants_lint.py:72.
+Check flags: none
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1sx59-mem subprocess-diagnostics-must-not-fail-utf-8-decoding`
 Kind: `environment_gotcha`
 Confidence: 0.9
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1p9iy-bug dev-test-infra-windows-hardening:6698822b47133610`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The behavior has since become a shared subprocess utility 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: The subprocess utility and runner share reporting paths; malformed child output must remain diagnosable. Reviewed .wavefoundry/framework/scripts/subprocess_util.py:213.
+Check flags: none
 
 ## Summary
 

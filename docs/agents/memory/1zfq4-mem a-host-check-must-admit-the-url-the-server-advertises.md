@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-11-26
 
 Memory ID: `1zfq4-mem a-host-check-must-admit-the-url-the-server-advertises`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-11-26
 Source exploration cost: 113318
 Source event: `finding:1zim2:DEL-1ZIM2-WILDCARD-ADVERTISED-URL`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The dashboard Host check refused the URL main recorded for
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: Dashboard startup advertises a loopback URL for a wildcard bind. Startup and Host-header checks must agree on that URL. Reviewed .wavefoundry/framework/scripts/dashboard_server.py:1231.
+Check flags: none
 
 ## Summary
 

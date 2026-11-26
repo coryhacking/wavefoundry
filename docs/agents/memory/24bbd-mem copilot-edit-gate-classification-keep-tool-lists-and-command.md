@@ -8,9 +8,12 @@ Memory ID: `24bbd-mem copilot-edit-gate-classification-keep-tool-lists-and-comma
 Kind: `fragile_file`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 181396
 Supersedes: `21rnt-mem copilot-edit-gate-classification-keep-tool-lists-and-command`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Copilot editor commands distinguish reads from writes. A host tool rename requires checking both lists and generated hooks. Reviewed .wavefoundry/framework/scripts/render_platform_surfaces.py:1497.
+Check flags: none
 
 ## Summary
 

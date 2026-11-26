@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1swnd-mem preserve-content-addressed-secret-scan-candidate-semantics`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1rsha-enh incremental-secret-scan-cache:c8a6b38bde212073`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: Current source and tests still implement this non-obvious 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: Standalone scan eligibility differs from the indexer walk; sharing cache state still requires producer-aware checks. Reviewed .wavefoundry/framework/scripts/indexer.py:2742.
+Check flags: none
 
 ## Summary
 

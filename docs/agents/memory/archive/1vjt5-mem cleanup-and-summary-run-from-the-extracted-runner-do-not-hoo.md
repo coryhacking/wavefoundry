@@ -1,14 +1,15 @@
 # Cleanup and summary run from the extracted runner; do not hook them for the delivering upgrade
 
 Owner: Engineering
-Status: active
+Status: archived
 Last verified: 2026-08-16
 
 Memory ID: `1vjt5-mem cleanup-and-summary-run-from-the-extracted-runner-do-not-hoo`
+Superseded by: `24f1e-mem give-each-upgrade-advisory-one-owner-across-primary-and-clea`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-08-16
-Updated: 2026-08-16
+Updated: 2026-11-25
 Source exploration cost: 256624
 Source event: `finding:1vgep:pre-cleanup-hook-duplicates-advisory`
 Validation: promote
@@ -18,6 +19,9 @@ Validation rationale: Wave 1vgep: a review assumed the operator summary was prin
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Archived: 2026-11-25
+Archive reason: Superseded after checking the current primary summary and installed cleanup handoff. Retain the source of the historical duplicate-advisory lesson.
+Archive path: `docs/agents/memory/archive/1vjt5-mem cleanup-and-summary-run-from-the-extracted-runner-do-not-hoo.md`
 
 ## Summary
 

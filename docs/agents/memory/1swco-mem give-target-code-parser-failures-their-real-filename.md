@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1swco-mem give-target-code-parser-failures-their-real-filename`
 Kind: `successful_pattern`
 Confidence: 0.9
 Created: 2026-07-18
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `decision-log:1p9p6-bug python-parse-filename-and-invalid-escape:f02ba5f503bd6609`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: Current chunker and graph paths still rely on filename-awa
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:38Z
+Check note: The chunker passes real source paths into its AST helpers so diagnostics identify the input. Reviewed .wavefoundry/framework/scripts/chunker.py:7948.
+Check flags: none
 
 ## Summary
 

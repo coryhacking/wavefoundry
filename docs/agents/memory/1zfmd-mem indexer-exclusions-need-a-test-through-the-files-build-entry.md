@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-11-26
 
 Memory ID: `1zfmd-mem indexer-exclusions-need-a-test-through-the-files-build-entry`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-11-26
 Source exploration cost: 113318
 Source event: `finding:1zim2:DEL-1ZIM2-FILES-SEAM-UNPINNED`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: A helper-only test left the build-path filter call unpinne
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: The index build entry point supplies exclusion inputs. A helper test alone misses a disconnected call. Reviewed .wavefoundry/framework/scripts/indexer.py:4885.
+Check flags: none
 
 ## Summary
 

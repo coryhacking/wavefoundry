@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1trcp-mem name-shape-enumeration-let-a-directory-rename-evade-the-orph`
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-07-27
-Updated: 2026-07-27
+Updated: 2026-11-26
 Source exploration cost: 1158805
 Source event: `finding:1to78:DF1-orphan-guard-dir-rename-evasion`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated summary described the reverification rather 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: The orphan-ledger check enumerates children. Reusable warning about mismatched discovery grammars still applies. Reviewed .wavefoundry/framework/scripts/wave_lint_lib/wave_validators.py:1703.
+Check flags: target_churn
 
 ## Summary
 

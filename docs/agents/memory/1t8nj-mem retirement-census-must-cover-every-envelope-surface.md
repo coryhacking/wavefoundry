@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1t8nj-mem retirement-census-must-cover-every-envelope-surface`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-07-22
-Updated: 2026-07-22
+Updated: 2026-11-26
 Source event: `finding:1t9wa:stale-journal-watchpoints-envelope-key`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The generated candidate extracted its targets from the ver
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The public lifecycle tools still expose several structured responses; retiring a field needs a cross-tool census. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:21558.
+Check flags: target_churn
 
 ## Summary
 

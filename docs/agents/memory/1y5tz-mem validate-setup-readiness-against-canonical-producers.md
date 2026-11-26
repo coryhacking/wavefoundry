@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-15
+Last verified: 2026-11-26
 
 Memory ID: `1y5tz-mem validate-setup-readiness-against-canonical-producers`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-09-15
-Updated: 2026-09-15
+Updated: 2026-11-26
 Source exploration cost: 1110645
 Source event: `finding:1y3og:SETUP-SURFACE-001`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Verified linked typed finding and final observer/tests. Ge
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: The setup readiness suite drives canonical options through continuation. Matching only argument-parser fixtures misses supported launchers. Reviewed .wavefoundry/framework/scripts/tests/test_setup_readiness.py:750.
+Check flags: none
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-11-26
 
 Memory ID: `203is-mem after-reload-spies-must-patch-the-callable-s-retained-depend`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-10-08
-Updated: 2026-10-08
+Updated: 2026-11-26
 Source exploration cost: 1072877
 Source event: `repeated-repairs:200ey:.wavefoundry/framework/scripts/tests/test_secrets_validators.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated three-repair fragility count is false becaus
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:42Z
+Check note: Reload tests keep old callable objects. Patch what the retained callable actually resolves, then verify which spy fired. Reviewed .wavefoundry/framework/scripts/tests/test_secrets_validators.py:1976.
+Check flags: none
 
 ## Summary
 

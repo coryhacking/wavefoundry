@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-11-26
 
 Memory ID: `1zbe6-mem command-line-test-expectations-must-be-platform-rendered`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-09-29
-Updated: 2026-09-29
+Updated: 2026-11-26
 Source exploration cost: 526079
 Source event: `finding:1zc7n:DEL-CR-WINDOWS-QUOTING`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: DEL-CR-WINDOWS-QUOTING: two tests required unquoted '--roo
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: Process-info command-line formatting is platform-dependent. Keep assertions tied to the platform rendering contract. Reviewed .wavefoundry/framework/scripts/tests/test_process_info.py:76.
+Check flags: target_churn
 
 ## Summary
 

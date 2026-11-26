@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1ti6d-mem relocating-cli-code-into-the-mcp-server-turns-process-global`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-07-25
-Updated: 2026-07-25
+Updated: 2026-11-26
 Source exploration cost: 224660
 Source event: `finding:1tis8:memory-eval-global-monkeypatch-concurrency`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Verified against the terminal ledger chain and the current
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The memory evaluator documents process-global state. Moving another script into MCP still changes the scope of its mutations. Reviewed .wavefoundry/framework/scripts/memory_eval.py:131.
+Check flags: target_churn
 
 ## Summary
 

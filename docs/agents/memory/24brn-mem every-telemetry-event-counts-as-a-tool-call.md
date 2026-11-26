@@ -8,9 +8,12 @@ Memory ID: `24brn-mem every-telemetry-event-counts-as-a-tool-call`
 Kind: `decision`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 102695
 Supersedes: `1zo9f-mem every-telemetry-event-counts-as-a-tool-call`
+Checked at: 2026-11-26T06:32:44Z
+Check note: The context-efficiency counter includes telemetry calls. Adding an event changes the observed stage count. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:19036.
+Check flags: none
 
 ## Summary
 

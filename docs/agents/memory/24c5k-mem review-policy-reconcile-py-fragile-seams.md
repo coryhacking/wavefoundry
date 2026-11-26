@@ -8,9 +8,12 @@ Memory ID: `24c5k-mem review-policy-reconcile-py-fragile-seams`
 Kind: `fragile_file`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 3641306
 Supersedes: `1u2ju-mem fragile-review-policy-reconcile-py`
+Checked at: 2026-11-26T06:32:45Z
+Check note: Policy reconciliation has several reasons and managed replacements. Review all matching refusals and the owner of each replacement. Reviewed .wavefoundry/framework/scripts/review_policy_reconcile.py:503.
+Check flags: none
 
 ## Summary
 

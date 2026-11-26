@@ -8,8 +8,11 @@ Memory ID: `24bx9-mem never-unlink-a-lock-carrier-after-only-probing-it`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1zbln-mem probe-then-unlink-of-a-lock-carrier-lets-two-holders-coexist`
+Checked at: 2026-11-26T06:32:44Z
+Check note: The lock carrier can identify a live owner. Hold the lock through metadata cleanup to avoid a check-then-unlink race. Reviewed .wavefoundry/framework/scripts/tests/test_process_info_callers.py:279.
+Check flags: none
 
 ## Summary
 

@@ -8,8 +8,11 @@ Memory ID: `24aqd-mem time-a-sqlite-publication-from-begin-immediate-return-to-c
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Supersedes: `1xoyl-mem measure-acquired-writer-intervals-and-freeze-per-run-timing-`
+Checked at: 2026-11-26T06:32:43Z
+Check note: The timing test separates transaction acquisition from commit. New publication metrics should preserve that distinction. Reviewed .wavefoundry/framework/scripts/tests/test_indexer.py:6250.
+Check flags: none
 
 ## Summary
 

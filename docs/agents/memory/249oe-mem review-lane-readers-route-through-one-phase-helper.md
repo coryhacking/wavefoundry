@@ -8,9 +8,12 @@ Memory ID: `249oe-mem review-lane-readers-route-through-one-phase-helper`
 Kind: `decision`
 Confidence: 0.8
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 132912
 Supersedes: `1zm66-mem review-lane-readers-route-through-one-phase-helper`
+Checked at: 2026-11-26T06:32:42Z
+Check note: Delivery and Prepare derive their lanes by phase. Avoid parallel interpretation of project review settings in new callers. Reviewed .wavefoundry/framework/scripts/lifecycle_gate_support.py:1314.
+Check flags: none
 
 ## Summary
 

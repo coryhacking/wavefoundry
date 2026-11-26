@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-26
 
 Memory ID: `1t018-mem place-unittest-main-at-eof-in-per-file-test-modules`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-07-19
-Updated: 2026-11-22
+Updated: 2026-11-26
 Source event: `finding:1sxj7:memory-test-runner-premature-main`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: Direct execution previously stopped at line 281 and ran on
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:38Z
+Check note: The per-file test entry point and memory test module retain a main guard; adding tests below it can hide them in direct runs. Reviewed .wavefoundry/framework/scripts/tests/test_memory_records.py:73.
+Check flags: none
 
 ## Summary
 

@@ -8,9 +8,12 @@ Memory ID: `24bc9-mem upgrade-phase-steps-that-can-install-must-be-stubbed-modul
 Kind: `failed_attempt`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 413440
 Supersedes: `1zfii-mem repaired-defect-del-phase4-tests-reach-installer`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Upgrade tests cover phases capable of modifying the shared environment. Mock dependency discovery across the full phase entry point. Reviewed .wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py:2911.
+Check flags: none
 
 ## Summary
 

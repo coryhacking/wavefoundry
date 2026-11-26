@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-27
+Last verified: 2026-11-26
 
 Memory ID: `1wiaj-mem evidence-scripts-must-not-default-write-committed-artifact-n`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-08-27
-Updated: 2026-08-27
+Updated: 2026-11-26
 Source exploration cost: 390416
 Source event: `finding:1wfsl:QA-DEL-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The generated summary restated the discharge line rather t
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Census scripts distinguish disposable output from committed evidence. Reproduction commands should preserve the original observation. Reviewed docs/waves/1wfsl structured-docs-retrieval/evidence/census_exclusions.py:193.
+Check flags: none
 
 ## Summary
 

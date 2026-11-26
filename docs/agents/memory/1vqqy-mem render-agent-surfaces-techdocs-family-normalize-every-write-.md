@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-18
+Last verified: 2026-11-26
 
 Memory ID: `1vqqy-mem render-agent-surfaces-techdocs-family-normalize-every-write-`
 Kind: `fragile_file`
 Confidence: 0.85
 Created: 2026-08-18
-Updated: 2026-08-18
+Updated: 2026-11-26
 Source exploration cost: 3814599
 Source event: `repeated-repairs:1vj4e:render_agent_surfaces.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Auto-derived attribution is false: memory_supply keys targ
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: TechDocs baseline reconciliation has multiple write destinations. Output-path failure handling must cover all of them. Reviewed .wavefoundry/framework/scripts/tests/test_render_agent_surfaces.py:5649.
+Check flags: target_churn
 
 ## Summary
 

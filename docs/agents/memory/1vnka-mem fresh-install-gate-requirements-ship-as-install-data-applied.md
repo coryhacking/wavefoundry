@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-17
+Last verified: 2026-11-26
 
 Memory ID: `1vnka-mem fresh-install-gate-requirements-ship-as-install-data-applied`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-08-17
-Updated: 2026-08-17
+Updated: 2026-11-26
 Source exploration cost: 3068146
 Source event: `decision-log:1vim5-bug workflow-config-required-sections-have-no-install-owner:e8e4202733e96328`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Decision Log row verified against the tree: install/workfl
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:40Z
+Check note: Fresh setup applies config policy defaults. The bootstrap must ship the data needed before a target has a complete surface. Reviewed .wavefoundry/framework/scripts/setup_wavefoundry.py:393.
+Check flags: target_churn
 
 ## Summary
 

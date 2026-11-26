@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-11-26
 
 Memory ID: `1t381-mem sandbox-cwd-and-mock-all-side-effecting-gates-in-cli-main-te`
 Kind: `successful_pattern`
 Confidence: 0.9
 Created: 2026-07-20
-Updated: 2026-07-20
+Updated: 2026-11-26
 Source event: `decision-log:1t231-bug test-writes-memory-state-outside-fixture:3d67f46c274560dc`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The drafted candidate buries the durable two-layer pattern
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:38Z
+Check note: Setup CLI tests still exercise gates that use the default root; future test cases need isolated working directories. Reviewed .wavefoundry/framework/scripts/tests/test_setup_wavefoundry.py:1381.
+Check flags: none
 
 ## Summary
 

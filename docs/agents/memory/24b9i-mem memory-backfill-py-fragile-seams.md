@@ -8,9 +8,12 @@ Memory ID: `24b9i-mem memory-backfill-py-fragile-seams`
 Kind: `fragile_file`
 Confidence: 0.7
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 3641306
 Supersedes: `1u25a-mem fragile-memory-backfill-py`
+Checked at: 2026-11-26T06:32:44Z
+Check note: Memory backfill uses persistent source IDs and records prior dispositions. Renames need tests for identity and replay. Reviewed .wavefoundry/framework/scripts/memory_backfill.py:116.
+Check flags: none
 
 ## Summary
 

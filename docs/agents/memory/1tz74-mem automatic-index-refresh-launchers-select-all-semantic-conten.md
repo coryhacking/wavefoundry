@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1tz74-mem automatic-index-refresh-launchers-select-all-semantic-conten`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-07-29
-Updated: 2026-07-29
+Updated: 2026-11-26
 Source exploration cost: 367113
 Source event: `decision-log:1txzt-bug mcp-index-monitor-stale-child-recovery:ab84c0e667026a16`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The decision is durable, but the generated target `indexer
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: Automatic refresh has several launchers. Producer-side content arguments remain an integration concern. Reviewed .wavefoundry/framework/scripts/render_platform_surfaces.py:3134.
+Check flags: target_churn
 
 ## Summary
 

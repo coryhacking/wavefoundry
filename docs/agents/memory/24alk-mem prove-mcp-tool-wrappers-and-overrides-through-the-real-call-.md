@@ -8,9 +8,12 @@ Memory ID: `24alk-mem prove-mcp-tool-wrappers-and-overrides-through-the-real-cal
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-11-25
-Updated: 2026-11-25
+Updated: 2026-11-26
 Source exploration cost: 135009
 Supersedes: `1z44o-mem prove-mcp-tool-wrappers-and-overrides-through-the-real-call-`
+Checked at: 2026-11-26T06:32:43Z
+Check note: The registered call path includes middleware and overrides that direct handler invocations bypass. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:23954.
+Check flags: none
 
 ## Summary
 

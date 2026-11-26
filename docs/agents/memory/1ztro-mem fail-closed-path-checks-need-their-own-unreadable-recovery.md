@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-11-26
 
 Memory ID: `1ztro-mem fail-closed-path-checks-need-their-own-unreadable-recovery`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-10-04
-Updated: 2026-10-04
+Updated: 2026-11-26
 Source exploration cost: 282431
 Source event: `finding:1zrak:DEL-R1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: DEL-R1: after converting the upgrade-lock check to the err
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: Upgrade refusal distinguishes an unreadable lock from an absent one. The recovery action must match the underlying errno. Reviewed .wavefoundry/framework/scripts/upgrade_lib.py:96.
+Check flags: none
 
 ## Summary
 

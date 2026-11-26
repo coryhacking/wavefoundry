@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-26
 
 Memory ID: `1ywls-mem decision-the-server-package-is-wf-server-reached-through-fla`
 Kind: `decision`
 Confidence: 0.9
 Created: 2026-09-25
-Updated: 2026-09-25
+Updated: 2026-11-26
 Source exploration cost: 121337
 Source event: `decision-log:1yxql-ref server-package-boundary:fdc79f316426e1ec`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: Evidence verified in the 1yzd0 change doc Decision Log (20
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:40Z
+Check note: The package layout and shim tests preserve distinct runner and implementation ownership; new modules need consistent import identity. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:45.
+Check flags: target_churn
 
 ## Summary
 

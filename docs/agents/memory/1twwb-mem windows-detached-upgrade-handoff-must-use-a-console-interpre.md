@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-30
+Last verified: 2026-11-26
 
 Memory ID: `1twwb-mem windows-detached-upgrade-handoff-must-use-a-console-interpre`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-07-30
-Updated: 2026-07-30
+Updated: 2026-11-26
 Source exploration cost: 1297806
 Source event: `finding:1tz6l:windows-handoff-uses-pythonw`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The source finding is durable, but the generated draft was
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Checked at: 2026-11-26T06:32:39Z
+Check note: The upgrade subprocess chooses the interpreter for its execution mode. Detached console handoffs still need Windows-specific coverage. Reviewed .wavefoundry/framework/scripts/upgrade_extensions.py:4484.
+Check flags: target_churn
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-11-26
 
 Memory ID: `1zfjy-mem forward-the-validated-value-and-test-hints-with-the-canonica`
 Kind: `failed_attempt`
 Confidence: 0.8
 Created: 2026-10-01
-Updated: 2026-10-01
+Updated: 2026-11-26
 Source exploration cost: 108574
 Source event: `repeated-repairs:1zim3:tests/test_extension_tool_modules.py`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The two repairs were in production code (lax pin forwarded
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:41Z
+Check note: The server validates forwarded arguments against the canonical field; type coercion and diagnostic hints need separate checks. Reviewed .wavefoundry/framework/scripts/wf_server/server_impl.py:24043.
+Check flags: target_churn
 
 ## Summary
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-11-26
 
 Memory ID: `1t3bk-mem toctou-and-phantom-hold-lessons-from-the-suite-indexer-exclu`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-07-20
-Updated: 2026-07-20
+Updated: 2026-11-26
 Source event: `finding:1t72b:suite-indexer-exclusion-toctou-race`
 Validation: promote
 Validated by: agent
@@ -17,6 +17,9 @@ Validation rationale: The drafted candidate is accurate but thin: it targets onl
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Checked at: 2026-11-26T06:32:39Z
+Check note: The build path probes the other lock while holding its own; check ordering and phantom owners together in future lock edits. Reviewed .wavefoundry/framework/scripts/indexer.py:3384.
+Check flags: target_churn
 
 ## Summary
 
