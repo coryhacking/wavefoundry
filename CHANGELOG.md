@@ -8,8 +8,11 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.55.0] - 2026-11-27
+
 ### Changed
 
+- **After upgrading, re-Prepare each readied or open declared wave once.** The review-policy evaluator moved to version 9, so existing receipts are reported stale until Prepare publishes a new one. Wave 24jwg / 24jwf.
 - Seeds 180 and 209 tell agents in every project to order verification by cost: the touched files' tests and the project's fast guard tests after each edit, only the affected tests after a repair, and the full verification once per wave, after the last repair. Re-verifying lanes are briefed with the finding and the repair diff; their duties are unchanged. Wave 24jwg / 24jwe.
 - `run_tests.py --guards` runs the framework's guard files (pins, scans and censuses, about 9 seconds) as a focused run that writes no receipt, and full runs now start those files first so a guard failure shows early. Wave 24jwg / 24jwe.
 - A spec that names Windows, macOS or Linux without changing platform-specific behaviour can declare `cross_platform_changed: false` on a line of its own to rule those names out as a delivery-Council trigger for that spec only; "cross-platform" and an explicit `true` still trigger it. The review-policy evaluator moves to version 9, so readied or open declared waves need one re-Prepare after upgrading. The repair-depth full-Council booleans in seed 209 are unchanged. Wave 24jwg / 24jwf.
