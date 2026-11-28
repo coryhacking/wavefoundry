@@ -518,12 +518,14 @@ class LifecycleGoldenTests(unittest.TestCase):
                     if isinstance(policy, dict):
                         self.assertEqual(policy.pop('delivery_lanes'), policy['required_lanes'])
                         self.assertEqual(policy.pop('delivery_only_lanes'), [])
-                        # The section parser changed in 23tcx. Only evaluator version
-                        # and derived identity differ for these comment-free plans.
+                        # The section parser changed in 23tcx (v8), and the
+                        # cross-platform declaration arrived in 24jwg (v9). Only
+                        # evaluator version and derived identity differ for these
+                        # comment-free plans without OS names.
                         previous = old_response["data"]["review_policy"]
                         receipt = policy["receipt"]
                         self.assertEqual(previous["receipt"]["evaluator_version"], 7)
-                        self.assertEqual(receipt["evaluator_version"], 8)
+                        self.assertEqual(receipt["evaluator_version"], 9)
                         self.assertEqual(policy["policy_input_digest"], receipt["policy_input_digest"])
                         for field in ("policy_input_digest", "receipt_id"):
                             self.assertNotEqual(receipt[field], previous["receipt"][field])

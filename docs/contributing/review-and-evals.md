@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-25
+Last verified: 2026-11-27
 
 ## Review Lane Summary
 
@@ -134,7 +134,7 @@ Record the applicable closure obligations and their evidence in the wave record.
 
 ## Wave Council
 
-The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. In ordinary review, enabled review requires readiness Council. The ordinary delivery Council follows the explicit mode: `universal` requires it for every wave, `targeted` requires it only when the Prepare receipt or current boundary triggers select it (including upgrade/release, permission/trust-boundary, and cross-platform work), and `disabled` is valid only with `enabled: false`.
+The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. In ordinary review, enabled review requires readiness Council. The ordinary delivery Council follows the explicit mode: `universal` requires it for every wave, `targeted` requires it only when the Prepare receipt or current boundary triggers select it (including upgrade/release, permission/trust-boundary, and cross-platform work; a spec that only names operating systems can rule out the cross-platform trigger for itself with `cross_platform_changed: false`), and `disabled` is valid only with `enabled: false`.
 
 - `council-readiness` before implementation when the current Prepare receipt requires it
 - `council-delivery` before closure when the selected delivery mode requires it

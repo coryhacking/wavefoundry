@@ -181,6 +181,10 @@ When fallback to shell tools was necessary, record a `Gapfill:` entry in Progres
 
 What bug would this test catch, and which parts of the real system must run to expose it? See “Choose a test boundary” in `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md` for the listener recovery example. For a Rust schema generator, use “Test generated decoders against wire fixtures” in `.wavefoundry/framework/docs/rust-practices.md`. For a performance-driven runtime migration, use “Evaluate a proposed runtime migration” in `.wavefoundry/framework/seeds/212-performance-reviewer.prompt.md`.
 
+## Order verification by cost
+
+Run the cheapest checks that can fail first. After each edit, run the tests for the files you touched and the project's fast guard tests: pins, source scans and censuses that assert something about the whole codebase and finish in seconds. A guard failure found after a long full run costs the whole run. After a repair, rerun only what the repair affects, plus the guards. Run the project's full verification once per wave, after the last repair, as the last step before close; close needs only one green result on the final tree. Seed 209 ("Continuation And Qualification Discipline") requires the same fast checks before a handoff to delivery reviewers.
+
 ## Host-neutral orchestration
 
 Use the best available model and reasoning effort for each specific task throughout Prepare, plan review, implementation, verification, delivery review and Close. The operator may choose a different agent host for each wave or hand review to another host. Coordinator, worker and reviewer are responsibilities, not fixed model tiers; no provider, model, reasoning level or native team UI is mandatory.

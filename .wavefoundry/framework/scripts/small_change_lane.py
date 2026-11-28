@@ -353,7 +353,10 @@ def assess(root: Path, wave_md: Path, selection: dict, member_ids, *, admission=
         if spec is None:
             raise Unverified("The spec describing the intended effect is missing.")
         effect = review_policy.normalized_review_text(spec) + "\n" + selection["intended_diff"]
-        triggers = review_policy.extract_full_council_triggers([effect])
+        # Wave 24jwg (24jwf delivery F1): two texts, so a declaration in the spec
+        # cannot silence platform names in the intended diff, or the reverse.
+        triggers = review_policy.extract_full_council_triggers(
+            [review_policy.normalized_review_text(spec), selection["intended_diff"]])
         match = _EFFECT.search(effect)
         if triggers or match:
             raise Unverified("The described effect requires ordinary review: " + ", ".join(triggers or [match.group()]) + ".")

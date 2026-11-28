@@ -27401,7 +27401,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``checked_but_missing``, ``next_step``, ``phase_complete``, and ``complete``.
         Only the last five carry ``pending_lint``. ``lint_errors.errors`` contains
         blocking findings only; expected absences while seed rows remain pending are
-        carried separately and become blocking at the final gate. When all rows are
+        carried separately and become blocking at the final gate. While the seed-050
+        row is pending, the "no factor reviews are switched on" warning is carried in
+        ``pending_lint.warnings`` instead of as a diagnostic. When all rows are
         ``[x]`` or ``[~]`` and lint passes, returns ``complete``.
 
         Distinct from ``wf_audit`` (post-install repo health). Do NOT use

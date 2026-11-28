@@ -14857,7 +14857,9 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual("docs-contract-reviewer" in old[-1]["required_lanes"], expected_before)
         current = prepare()
         self.assertEqual(len(current), len(old) + 1)
-        self.assertEqual(current[-1]["evaluator_version"], 8)
+        # The current evaluator (v9 since wave 24jwg) keeps the v8 comment-aware
+        # heading boundaries this helper exercises.
+        self.assertEqual(current[-1]["evaluator_version"], 9)
         self.assertIn("docs-contract-reviewer", current[-1]["required_lanes"])
         self.assertEqual(prepare(), current)
         self.assertEqual(current[:len(old)], old)
@@ -16498,6 +16500,75 @@ Status: in-progress
                 self.assertIs(True, warnings[0].get("advisory"), warnings[0])
                 self.assertIn("asserts repository-wide state", warnings[0]["message"])
 
+    def _factor_reviews_off_warning(self, factors):
+        """The real check_factor_surface warning for the shipped defaults plus a profile."""
+        import json
+        import shutil
+        import tempfile
+        from wave_lint_lib.wave_validators import check_factor_surface
+
+        fixture = Path(tempfile.mkdtemp())
+        try:
+            (fixture / "docs").mkdir()
+            shutil.copy2(self.srv.SCRIPTS_DIR.parent / "install" / "workflow-config.defaults.json",
+                         fixture / "docs" / "workflow-config.json")
+            (fixture / "docs" / "repo-profile.json").write_text(json.dumps({"factor_review": {
+                fid: {"status": "applicable", "rationale": "x"} for fid in factors}}))
+            errors, warnings = check_factor_surface(fixture)
+        finally:
+            shutil.rmtree(fixture, ignore_errors=True)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1, warnings)
+        return "WARNING: " + warnings[0]
+
+    def test_factor_reviews_off_warning_is_pending_until_the_seed_050_row_runs(self):
+        """Wave 24i2t (24fw1 AC-4): between the profile row and the seed-050 row, the install
+        audit carries the fresh-install factor warning under pending_lint.warnings, not as a
+        docs_lint_warning diagnostic or a data.warnings entry; once that row is checked it
+        surfaces as before. Other warnings are untouched."""
+        from unittest.mock import patch
+        log = self._MINIMAL_LOG.replace("- [ ] 2.2", "- [x] 2.2") + (
+            "- [ ] 2.5 — Generate per-role agent docs (seed-050) — artifact: docs/agents/x.md\n")
+        other = "WARNING: docs/other.md: unrelated advisory"
+
+        def audit(warning, *, errors=(), phase=None):
+            with patch.object(self.srv, "run_validate", return_value={
+                "passed": not errors, "errors": list(errors), "warnings": [warning, other],
+                "output": "ok"}):
+                return self.srv.wf_audit_install_response(self.root, phase=phase)
+
+        (self.root / "docs" / "repo-profile.json").write_text("{}")  # row 2.2 artifact present
+        # A pending seed-050 row with no factor warning carries nothing and no note.
+        self._write_log(log)
+        with patch.object(self.srv, "run_validate", return_value={
+                "passed": True, "errors": [], "warnings": [other], "output": "ok"}):
+            quiet = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(quiet["data"]["pending_lint"]["warnings"], [])
+        self.assertEqual(quiet["data"]["pending_lint"]["warnings_note"], "")
+        for factors in (["07"], ["01", "02", "05", "12", "15"]):
+            warning = self._factor_reviews_off_warning(factors)
+            self._write_log(log)
+            for phase in (None, 1, 2):
+                for errors in ((), ("docs/x.md: broken",)):
+                    with self.subTest(factors=factors, phase=phase, errors=errors):
+                        result = audit(warning, errors=errors, phase=phase)
+                        pending = result["data"]["pending_lint"]
+                        self.assertEqual(pending["warnings"], [warning])
+                        self.assertIn("row 2.5 (seed-050)", pending["warnings_note"])
+                        messages = [d["message"] for d in result.get("diagnostics") or []
+                                    if d["code"] == "docs_lint_warning"]
+                        self.assertEqual(messages, [other])
+                        if errors:
+                            self.assertEqual(result["data"]["status"], "lint_errors", result)
+                            self.assertEqual(result["data"]["warnings"], [other])
+            self._write_log(log.replace("- [ ] 2.5", "- [x] 2.5"))
+            result = audit(warning)
+            self.assertEqual(result["data"]["pending_lint"]["warnings"], [])
+            self.assertEqual(result["data"]["pending_lint"]["warnings_note"], "")
+            messages = [d["message"] for d in result.get("diagnostics") or []
+                        if d["code"] == "docs_lint_warning"]
+            self.assertEqual(messages, [warning, other])
+
     def _build_phase_one_complete_tree(self):
         """Wave 1viyu (CODE-DEL-1): a FAITHFUL Phase-1-complete tree.
 
@@ -16613,7 +16684,7 @@ Status: in-progress
 
         before = digest()
         err = io.StringIO()
-        # The Python 3.11/3.12 runtime advisory would add a stderr line.
+        # The Python 3.11 to 3.13 runtime advisory would add a stderr line.
         with patch.object(wf_cli.venv_bootstrap, "activate_tool_venv"), \
              patch.object(wf_cli.runtime_advisory, "python_runtime_advisory", return_value=None), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):

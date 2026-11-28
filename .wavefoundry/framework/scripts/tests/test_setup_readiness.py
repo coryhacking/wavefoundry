@@ -94,7 +94,7 @@ class SetupReadinessTests(unittest.TestCase):
 
     def test_deprecated_runtime_is_additive_and_retains_independent_failures(self):
         Version = namedtuple('Version', 'major minor micro')
-        for minor in (11, 12, 13):
+        for minor in (11, 12, 13, 14):
             with self.subTest(minor=minor), patch.object(sys, 'version_info', Version(3, minor, 9)):
                 (self.venv / 'pyvenv.cfg').write_text(f'version = 3.{minor}.9')
                 readiness._site().mkdir(parents=True, exist_ok=True)
@@ -111,8 +111,8 @@ class SetupReadinessTests(unittest.TestCase):
                             self.assertEqual(observed[field], baseline[field], (field, observed))
                         self.assertEqual(readiness.exit_code(observed), readiness.exit_code(baseline))
                         self.assertEqual(readiness.format_text(observed), readiness.format_text(baseline))
-                        self.assertEqual(len(observed['advisories']), int(minor < 13))
-                        if minor < 13:
+                        self.assertEqual(len(observed['advisories']), int(minor < 14))
+                        if minor < 14:
                             self.assertEqual(observed['advisories'][0]['actual_version'], f'3.{minor}.9')
                         self.assertEqual(out.getvalue(), '')
                         self.assertEqual(err.getvalue(), '')

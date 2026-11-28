@@ -760,7 +760,7 @@ class PhaseLaneTests(unittest.TestCase):
     def test_digest_unchanged_without_phase_gates(self):
         self.configure()
         import review_policy
-        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 8)
+        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 9)
         text = self.wave_md.read_text()
         change_ids = self.srv._extract_change_ids_from_wave_text(text)
         brief = self.srv._build_prepare_council_brief(self.wave, text, change_ids, typed=True)

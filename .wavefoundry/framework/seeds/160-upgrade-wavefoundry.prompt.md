@@ -1075,7 +1075,7 @@ When seed 050 changes, merge its **Check readiness after Git changes** instructi
 
 ## Wavefoundry tooling Python runtime guidance
 
-**Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
+**Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.14 is recommended. Python 3.11 to 3.13 remain supported and receive security fixes only; python.org publishes no installers for those fixes, so a copy installed from python.org stops receiving them, while package-manager builds may continue. The minimum is still 3.11, and no removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
 
 During the editing pass, reconcile this tooling-only policy into existing install/upgrade prompts and Wavefoundry Python support guidance, preserving project additions and renderer-owned regions. Explain the once-per-`wf` invocation and once-per-MCP-serving-start stderr notice, silent dry-run verification, and structured `setup_readiness.advisories` visibility. The advisory is nonblocking and must not be treated as a setup/rebuild action.
 

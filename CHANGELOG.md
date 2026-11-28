@@ -8,6 +8,19 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Seeds 180 and 209 tell agents in every project to order verification by cost: the touched files' tests and the project's fast guard tests after each edit, only the affected tests after a repair, and the full verification once per wave, after the last repair. Re-verifying lanes are briefed with the finding and the repair diff; their duties are unchanged. Wave 24jwg / 24jwe.
+- `run_tests.py --guards` runs the framework's guard files (pins, scans and censuses, about 9 seconds) as a focused run that writes no receipt, and full runs now start those files first so a guard failure shows early. Wave 24jwg / 24jwe.
+- A spec that names Windows, macOS or Linux without changing platform-specific behaviour can declare `cross_platform_changed: false` on a line of its own to rule those names out as a delivery-Council trigger for that spec only; "cross-platform" and an explicit `true` still trigger it. The review-policy evaluator moves to version 9, so readied or open declared waves need one re-Prepare after upgrading. The repair-depth full-Council booleans in seed 209 are unchanged. Wave 24jwg / 24jwf.
+- Python 3.14 is now the recommended interpreter. Python 3.11 to 3.13 stay supported and now share one advisory: they receive security fixes only, and python.org publishes no installers for those fixes, so a copy installed from python.org stops receiving them. The advisory and the README transition steps now say the move is workstation-wide: every project shares one tool environment unless `WAVEFOUNDRY_TOOL_VENV` is set, so upgrade the other projects first or isolate this one. The advisory code `python_runtime_deprecated` keeps its name; `recommended_minimum` is now `3.14`. Wave 24i2t / 24fw1.
+- The "no factor reviews are switched on" docs-lint warning is in plain language. It names the relevant factors, says nothing is blocked, and gives both options with their consequence. It now also covers a single relevant factor. Wave 24i2t / 24fw1.
+
+### Fixed
+
+- Setup says when the `python3` on PATH is a different Python version from the interpreter running setup. The agent host and `wf` launch `python3` and would refuse the tool environment, so the notice gives the rerun-setup remedy. Wave 24i2t / 24fw1.
+- During install, `wf_audit_install` no longer reports the factor-review warning that the seed-050 row is about to resolve. While that row is pending, the warning is carried in `pending_lint.warnings`. Wave 24i2t / 24fw1.
+
 ## [1.54.0] - 2026-11-26
 
 ### Added

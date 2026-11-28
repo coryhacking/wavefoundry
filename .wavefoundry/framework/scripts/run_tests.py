@@ -22,8 +22,10 @@ Parallel execution
 ------------------
 Each test file runs in its own subprocess.  Up to 6 files run concurrently
 (capped below cpu_count to leave headroom for subprocess-heavy test files).
-Output is buffered and printed file-by-file after all workers finish so that
-output lines are never interleaved.
+Each file's ok/FAIL status line prints as that file completes; the full output
+of failing files is buffered and printed file-by-file after all workers finish so
+that output lines are never interleaved. Full runs start the guard files
+(``GUARD_TEST_FILES``) first, so a guard failure's status line appears early.
 """
 
 from __future__ import annotations
@@ -192,6 +194,32 @@ _FILE_TIMEOUT_SECONDS = 600
 # Benchmark-only schedule-control modes (Requirement 4 of 1tm6d).
 _SCHEDULE_MODES = ("bootstrap", "alphabetical", "timing")
 
+# Wave 24jwg (change 24jwe): guard files assert a source-wide invariant and finish
+# in seconds. `--guards` runs exactly these (focused, no receipt); full runs start
+# them first. Behaviour suites whose names contain "guard" do not belong here, and
+# test_line_ending_census.py (about a minute) is left to the full run.
+GUARD_TEST_FILES = (
+    "test_mcp_tool_registry.py",           # pinned handler digests (register-surface fixture)
+    "test_venv_bootstrap.py",              # single-reader scans (tool-venv override, venv layout)
+    "test_events_only_residue_census.py",  # events-only deletion census
+    "test_graph_call_census.py",           # graph call-site census
+    "test_label_reader_census.py",         # label reader census
+    "test_profile_literal_census.py",      # literal-path census over the framework tests
+    "test_record_layout_census.py",        # record-layout census
+    "test_vocabulary_census.py",           # vocabulary census
+    "test_child_spawn_bytecode_guard.py",  # test children run with -B
+)
+
+
+def _guard_first(order: "list[Path]") -> "list[Path]":
+    """Production full-run order: existing guard files first (in GUARD_TEST_FILES
+    order), then every other file in its previous order. A missing guard name is
+    skipped here so a renamed guard never blocks the run that writes the receipt."""
+    by_name = {p.name: p for p in order}
+    guards = [by_name[name] for name in GUARD_TEST_FILES if name in by_name]
+    guard_names = {p.name for p in guards}
+    return guards + [p for p in order if p.name not in guard_names]
+
 # Change 1zyv1: the project bytecode cache (``bytecode_cache``). ``main()`` sets
 # the prefix this run hands its workers, warm-up and profile child; it stays
 # ``None`` when the cache was refused or the layout is absent, and importing this
@@ -232,7 +260,7 @@ _BYTECODE_WARM_CODE = (
     "    compileall.compile_dir(path, quiet=2, rx=rx, workers=0)\n"
 )
 
-_USAGE = """usage: run_tests.py [--no-cache | --file NAME ... | --profile NAME [--file NAME ...]
+_USAGE = """usage: run_tests.py [--no-cache | [--guards] --file NAME ... | --profile NAME [--guards] [--file NAME ...]
                     | --qualify-profile NAME --qualification-report PATH
                     | --schedule-control MODE --timings-file PATH]
                     [--qualification-report PATH]
@@ -247,6 +275,10 @@ Run the framework test suite, one subprocess per test file.
   --file NAME               focused run of one discovered test_*.py file
                             (repeatable); writes no receipt and is not
                             delivery evidence
+  --guards                  focused run of the guard files (GUARD_TEST_FILES:
+                            pins, scans, censuses; seconds); combines with
+                            --file as a deduplicated union, guards first;
+                            writes no receipt and is not delivery evidence
   --profile NAME            second-profile run (change 1zim1): copy the
                             git-tracked and untracked non-ignored files into a
                             temporary git repository, apply the profile asset
@@ -1112,7 +1144,7 @@ def _parse_args(argv: list[str]) -> dict:
     """
     opts: dict = {"no_cache": False, "files": [], "schedule_control": None, "timings_file": None,
                   "profile": None, "qualify_profile": None, "help": False, "qualification_report": None,
-                  "reconcile": None, "accept": None, "operator_reviewed": None}
+                  "reconcile": None, "accept": None, "operator_reviewed": None, "guards": False}
     args = argv[1:]
     i = 0
     while i < len(args):
@@ -1142,6 +1174,10 @@ def _parse_args(argv: list[str]) -> dict:
                 raise _UsageError(f"{arg} may be given only once")
             opts[key] = args[i + 1]
             i += 1
+        elif arg == "--guards":
+            if opts["guards"]:
+                raise _UsageError("--guards may be given only once")
+            opts["guards"] = True
         elif arg == "--file":
             if i + 1 >= len(args):
                 raise _UsageError("--file requires a value (a discovered test_*.py basename)")
@@ -1170,6 +1206,15 @@ def _parse_args(argv: list[str]) -> dict:
             kind = "unknown option" if arg.startswith("-") else "positional argument"
             raise _UsageError(f"{kind} {arg!r} is not accepted")
         i += 1
+    if opts["guards"]:
+        # Wave 24jwg (24jwe): expand before every combination rule below, so
+        # --guards is accepted or refused exactly where --file is. User
+        # selections keep the duplicate refusal; only overlap with the guard
+        # set is deduplicated.
+        error = _selector_format_error(opts["files"])
+        if error is not None:
+            raise _UsageError(error)
+        opts["files"] = list(GUARD_TEST_FILES) + [f for f in opts["files"] if f not in GUARD_TEST_FILES]
     if opts["reconcile"] is not None:
         if (opts["files"] or any(opts[k] is not None for k in
                 ("profile", "qualify_profile", "schedule_control", "timings_file", "qualification_report"))
@@ -1189,8 +1234,9 @@ def _parse_args(argv: list[str]) -> dict:
             "--profile is mutually exclusive with --no-cache, --schedule-control and --timings-file"
         )
     if opts["files"] and opts["no_cache"]:
+        flag = "--guards" if opts["guards"] else "--file"
         raise _UsageError(
-            "--file and --no-cache are mutually exclusive (focused runs never touch the cache)"
+            f"{flag} and --no-cache are mutually exclusive (focused runs never touch the cache)"
         )
     if opts["schedule_control"] is not None:
         if opts["qualification_report"] is not None:
@@ -1523,9 +1569,8 @@ def _schedule_order(test_files: list[Path], durations: dict[str, float], mode: s
 
     ``timing`` orders longest-first by measured seconds with a stable name
     tiebreak; schedule-control candidates enforce map completeness before
-    calling. Every other mode — including the production default until the
-    measured schedule winner is recorded — is the existing alphabetical name
-    ordering, which is also the fallback when timing data is absent or
+    calling. Every other mode is the existing alphabetical name ordering (the
+    production full run wraps it in ``_guard_first``, wave 24jwg), which is also the fallback when timing data is absent or
     invalid. Ordering is advisory: it never authorizes a skip or a pass.
     """
     if mode == "timing":
@@ -2544,9 +2589,11 @@ def _main(opts: dict) -> int:
             return 0
     durations = _validated_durations(cache, test_files)
 
-    # Production order: alphabetical until the measured schedule winner is
-    # recorded by the counterbalanced control comparison (Requirement 4).
-    order = _schedule_order(test_files, durations, "alphabetical")
+    # Production order: guard files first (wave 24jwg, change 24jwe), then the
+    # alphabetical order the 1tm6d control comparison measured. Schedule-control
+    # modes keep their own orders, so `--schedule-control alphabetical` no longer
+    # matches production exactly.
+    order = _guard_first(_schedule_order(test_files, durations, "alphabetical"))
     ran_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     _LAST_EXECUTION_EVIDENCE = None
     previous_capture = _RECONCILIATION_CAPTURE

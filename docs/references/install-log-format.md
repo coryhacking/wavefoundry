@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-27
 
 The canonical schema for the **Wavefoundry install log**, the markdown-native state machine that gates Wavefoundry's two-phase install.
 
@@ -95,7 +95,7 @@ The complete status/field matrix is:
 | `phase_complete` | Yes |
 | `complete` | Yes |
 
-`pending_lint` has `{count, errors, truncated, note}`. Its error list is capped; `count` remains the total, `truncated` reports whether entries were omitted, and `note` explains that the absences are expected only while Phase 2 seed rows remain pending and become blocking at the final gate.
+`pending_lint` has `{count, errors, truncated, note}`. Its error list is capped; `count` remains the total, `truncated` reports whether entries were omitted, and `note` explains that the absences are expected only while Phase 2 seed rows remain pending and become blocking at the final gate. It also has `warnings` and `warnings_note`: while the seed-050 row is pending, the "no factor reviews are switched on" warning is carried there instead of as a diagnostic, because that row switches on factor reviews from the profile; these warnings never block.
 
 The tool does not auto-execute steps. It points at the next action and instructs the agent to complete it manually, then re-call.
 

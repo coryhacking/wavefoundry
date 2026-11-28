@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-26
+Last verified: 2026-11-27
 
 ## Verification Commands
 
@@ -75,6 +75,19 @@ focused, never read or write the last-green cache or any timing data, and are
 diagnostic only: they are never delivery, release, or close-gate evidence. One
 complete canonical run (`python3 .wavefoundry/framework/scripts/run_tests.py`)
 remains the delivery authority.
+
+`--guards` (wave 24jwg) is a focused run of `GUARD_TEST_FILES` in `run_tests.py`:
+the handler-digest pin, the single-reader scans and the census files, which
+assert something about the whole framework and finish in seconds (about 9 s
+wall time). It combines with `--file` as a deduplicated union, guards first, and
+writes no receipt. Full runs also start these files first, so a guard
+failure's FAIL line appears early. Order verification by cost:
+
+1. After each edit, run the touched files' tests plus the guards:
+   `python3 .wavefoundry/framework/scripts/run_tests.py --guards --file test_<touched>.py`.
+2. After a repair, rerun only what it affects, plus the guards.
+3. Run the plain full suite once per wave, after the last repair, just before
+   close; it writes the receipt close checks.
 
 Finish material source, test, configuration and edit-gate edits, and edits to
 the wave under test, before that run. Planning new work may continue during it
@@ -749,7 +762,7 @@ documented protocol bridge boundary.
 
 ## Python runtime policy
 
-**Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
+**Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.14 is recommended. Python 3.11 to 3.13 remain supported and receive security fixes only; python.org publishes no installers for those fixes, so a copy installed from python.org stops receiving them, while package-manager builds may continue. The minimum is still 3.11, and no removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
 
 The notice appears once per `wf` invocation or direct MCP serving startup, on stderr. Inspect `setup_readiness.advisories` through index health when host logs are hidden. It does not request repair or change command success. Follow the [runtime transition procedure](../../.wavefoundry/framework/README.md#python-runtime-advisory-and-transition): select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated environment override, and retain pending recovery ownership. Ordinary setup may replace an incompatible tool environment; the advisory never does.
 

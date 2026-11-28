@@ -1613,17 +1613,25 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
         self.assertNotIn("ERROR:", result.stderr)
         self.assertIn("WARNING:", result.stderr)
         # Consolidated advisory: one line, names both factors + a single actionable next step.
-        self.assertIn("is empty while docs/repo-profile.json marks 2 factors applicable", result.stderr)
-        self.assertIn("`07`", result.stderr)
-        self.assertIn("`12`", result.stderr)
-        self.assertIn("Upgrade Wavefoundry", result.stderr)
+        # Wave 24i2t (24fw1 AC-5): plain wording with both options and their consequence.
+        lines = [line for line in result.stderr.splitlines() if "no factor reviews are switched on" in line]
+        self.assertEqual(len(lines), 1, result.stderr)
+        line = lines[0]
+        self.assertIn("marks 2 factors (review areas) as relevant: `07`, `12`", line)
+        self.assertIn("fine to start with, and it blocks nothing", line)
+        self.assertIn("mark any you leave off `partial` in docs/repo-profile.json", line)
+        self.assertIn("ask your agent to generate their reviewer docs", line)
+        self.assertIn("docs lint reports an error for each one until its doc exists", line)
+        self.assertIn("mark them `partial` in docs/repo-profile.json, which stops this notice", line)
+        for jargon in ("lane", "assessment", "Upgrade Wavefoundry"):
+            self.assertNotIn(jargon, line)
         # The per-factor "no active review lane" phrasing is NOT used when consolidated.
         self.assertNotIn("no active review lane", result.stderr)
 
-    def test_factor_surface_single_inactive_factor_stays_per_factor(self) -> None:
-        """Boundary (wave 1p9bp): with an empty lane set but only ONE applicable factor,
-        the single per-factor warning is already a single actionable instruction, so it is
-        NOT consolidated (the consolidation only triggers at 2+ inactive-applicable factors)."""
+    def test_factor_surface_single_inactive_factor_uses_plain_wording(self) -> None:
+        """Wave 24i2t (24fw1, replaces the 1p9bp boundary): with an empty lane set and ONE
+        applicable factor, the plain consolidated wording is used too, so a fresh install with
+        one relevant factor never sees the per-factor jargon."""
         root = self.copy_fixture()
         self._set_applicable_factors(root, [])
         self._write_repo_profile(
@@ -1636,9 +1644,8 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("ERROR:", result.stderr)
-        self.assertIn("factor `07`", result.stderr)
-        self.assertIn("no active review lane", result.stderr)
-        self.assertNotIn("marks 2 factors applicable", result.stderr)
+        self.assertIn("no factor reviews are switched on, although docs/repo-profile.json marks 1 factor (review area) as relevant: `07`", result.stderr)
+        self.assertNotIn("no active review lane", result.stderr)
 
     def test_factor_surface_assessment_only_factor_warns_not_errors(self) -> None:
         """Assessment-only: a factor `applicable` in repo-profile but NOT in

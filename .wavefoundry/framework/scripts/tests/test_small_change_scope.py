@@ -46,10 +46,10 @@ class SmallChangeScopeTests(unittest.TestCase):
     def commit(self):
         self.git("-c", "user.email=fixture@localhost", "-c", "user.name=Fixture", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
 
-    def capture(self):
+    def capture(self, intended_diff="Sort internal samples."):
         return lane.capture(self.root, self.wave, self.change, {
             "operator_direction": "Select small review for this admission.",
-            "intended_diff": "Sort internal samples.",
+            "intended_diff": intended_diff,
             "paths": self.paths,
         }, [self.change])
 
@@ -184,6 +184,34 @@ class SmallChangeScopeTests(unittest.TestCase):
         self.paths = ["src/a.py"]
         self.staged.write_text("## Requirements\nReturn a new field in the public response.\n")
         self.assertIn("described effect", str(self.capture()[1]["reasons"]))
+
+    def test_cross_platform_false_declaration_applies_to_the_small_lane(self):
+        """Wave 24jwg (24jwf AC-1): OS names alone make the described effect ordinary;
+        an explicit `cross_platform_changed: false` in the spec clears that. A declaration
+        written only in the Progress Log does not count: the lane reads the same canonical
+        review text Prepare digests, which excludes Progress Log narration."""
+        self.paths = ["src/a.py"]
+        self.staged.write_text("# Internal change\n\n## Scope\n\nSort internal samples on Windows and Linux.\n")
+        self.assertIn("cross_platform_changed", str(self.capture()[1]["reasons"]))
+        self.staged.write_text("# Internal change\n\n## Scope\n\nSort internal samples on Windows and Linux.\n"
+                               "cross_platform_changed: false\n")
+        self.assertTrue(self.capture()[1]["eligible"], self.capture()[1]["reasons"])
+        self.staged.write_text("# Internal change\n\n## Scope\n\nSort internal samples on Windows and Linux.\n\n"
+                               "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n"
+                               "| 2026-11-27 | cross_platform_changed: false | note |\n")
+        self.assertIn("cross_platform_changed", str(self.capture()[1]["reasons"]))
+
+    def test_spec_and_intended_diff_declarations_do_not_cross(self):
+        """Wave 24jwg (24jwf delivery F1): the spec and the intended diff are separate
+        texts, so neither one's `false` silences platform names in the other."""
+        self.paths = ["src/a.py"]
+        self.staged.write_text("# Internal change\n\n## Scope\n\nSort internal samples.\n"
+                               "cross_platform_changed: false\n")
+        self.assertIn("cross_platform_changed",
+                      str(self.capture("Fix the path separator on Windows.")[1]["reasons"]))
+        self.staged.write_text("# Internal change\n\n## Scope\n\nSort internal samples on Windows.\n")
+        self.assertIn("cross_platform_changed",
+                      str(self.capture("cross_platform_changed: false")[1]["reasons"]))
 
     @unittest.skipIf(os.name == "nt", "POSIX symlink, FIFO and hardlink checks")
     def test_unsupported_file_types_and_aliases(self):

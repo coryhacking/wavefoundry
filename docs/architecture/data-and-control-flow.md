@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-24
+Last verified: 2026-11-27
 
 ## Runtime advisory boundary
 
@@ -917,7 +917,10 @@ admitted change content, project/requested lanes, primer depth, seats, and the
 delivery-Council decision to its immediate parent, so A → B → A cannot revive
 the first A approval. These normalizers are no longer only receipt hashing: `select_required_review_lanes`
 canonicalizes each undeclared document before scoring it, and Prepare feeds the same
-canonical texts to full-council trigger extraction and rotating-seat selection. Adding
+canonical texts to full-council trigger extraction and rotating-seat selection. Trigger
+extraction evaluates `cross_platform_changed` per admitted text and unions the results,
+so one spec's explicit `cross_platform_changed: false`, on a line of its own, rules out only its own bare
+operating-system names; every other field matches the joined texts. Adding
 or changing an exclusion therefore moves lane selection, the delivery-Council decision,
 and the council seat, not just receipt identity. The `changes` payload is hashed sorted
 by `change_id`, so reordering `## Changes` in a wave record is order-invariant.

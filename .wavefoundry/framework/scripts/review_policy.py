@@ -173,7 +173,11 @@ REVIEW_POLICY_SCHEMA_VERSION = 1
 # closed waves are untouched, because receipt-chain validation re-derives ids from
 # the fields stored on each record.
 # 7 -> 8: comment-aware heading boundaries change review scope.
-REVIEW_POLICY_EVALUATOR_VERSION = 8
+# 8 -> 9 (wave 24jwg, change 24jwf): an explicit `cross_platform_changed: false`
+# in one admitted text suppresses that text's bare OS-name tokens for the
+# cross-platform trigger; the field is evaluated per text and unioned, so the
+# same inputs can now yield a different receipt. One re-Prepare per readied-or-open wave.
+REVIEW_POLICY_EVALUATOR_VERSION = 9
 REVIEW_POLICY_RECEIPT_RECORD_TYPE = "review_policy_receipt"
 REVIEW_POLICY_REPREPARE_MARKER = "review-policy-reprepare-required"
 GENESIS_RECEIPT_PARENT = "genesis"
@@ -1355,16 +1359,48 @@ def delivery_council_required(
     )
 
 
-def extract_full_council_triggers(texts: Iterable[str]) -> tuple[str, ...]:
-    """Map admitted/delivered prose to the canonical full-Council fields."""
+_CROSS_PLATFORM_OS_TOKENS = ("windows", "macos", "linux")
 
-    corpus = "\n".join(change_doc_checklist.comment_visible_text(str(text)).lower() for text in texts)
+
+def _explicit_field_value(field: str, text: str, value: str) -> bool:
+    return bool(re.search(rf"(?mi)\b{re.escape(field)}\b\s*[:=]\s*{value}\b", text))
+
+
+def _declares_field_false(field: str, text: str) -> bool:
+    """A ``false`` declaration counts only on a line of its own (optionally a
+    bullet and/or backticks), so prose that merely mentions it, such as "do not
+    declare ... false", never switches a trigger off. ``true`` stays unanchored:
+    a stray mention of it can only add review, never remove it."""
+    return bool(re.search(
+        rf"(?mi)^[ \t]*(?:[-*+][ \t]+)?`?{re.escape(field)}[ \t]*[:=][ \t]*false`?[ \t]*\.?[ \t]*$", text))
+
+
+def extract_full_council_triggers(texts: Iterable[str]) -> tuple[str, ...]:
+    """Map admitted/delivered prose to the canonical full-Council fields.
+
+    Wave 24jwg (24jwf): ``cross_platform_changed`` is evaluated per text and
+    unioned. Within one text an explicit ``cross_platform_changed: false`` on a
+    line of its own suppresses only the bare OS-name tokens; the "cross-platform" phrases and
+    an explicit ``true`` still select it. One text's declaration never
+    suppresses another text's trigger. Every other field matches the joined
+    corpus exactly as before."""
+
+    visible = [change_doc_checklist.comment_visible_text(str(text)).lower() for text in texts]
+    corpus = "\n".join(visible)
     selected: list[str] = []
     for field, tokens in FULL_COUNCIL_TRIGGER_TOKENS:
-        explicit = bool(
-            re.search(rf"(?mi)\b{re.escape(field)}\b\s*[:=]\s*true\b", corpus)
-        )
-        if explicit or any(token in corpus for token in tokens):
+        if field == "cross_platform_changed":
+            hit = False
+            for text in visible:
+                ruled_out = _declares_field_false(field, text)
+                active = [t for t in tokens if not (ruled_out and t in _CROSS_PLATFORM_OS_TOKENS)]
+                if _explicit_field_value(field, text, "true") or any(t in text for t in active):
+                    hit = True
+                    break
+            if hit:
+                selected.append(field)
+            continue
+        if _explicit_field_value(field, corpus, "true") or any(token in corpus for token in tokens):
             selected.append(field)
     return tuple(selected)
 

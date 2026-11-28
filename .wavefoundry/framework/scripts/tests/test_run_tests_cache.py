@@ -995,6 +995,110 @@ class FocusedRunTests(_MainScaffoldTests):
         mock_read.assert_not_called()
 
 
+class GuardRunTests(_MainScaffoldTests):
+    """Wave 24jwg (24jwe AC-1, AC-2): `--guards` runs exactly GUARD_TEST_FILES."""
+
+    def _write_guards(self, names=None):
+        for name in (run_tests.GUARD_TEST_FILES if names is None else names):
+            (self.tmp / name).write_text("# fake\n", encoding="utf-8")
+
+    def _ran(self, argv):
+        ran = []
+
+        def fake_run(path):
+            ran.append(path.name)
+            return run_tests.FileResult(path.name, 0, "", 1, 0.1, 0)
+
+        with patch.object(run_tests, "_write_cache") as mock_write:
+            ret, out, err = self._main(argv, fake_run)
+        mock_write.assert_not_called()
+        return ret, sorted(ran), out, err
+
+    def test_guards_run_exactly_the_guard_set_and_write_no_receipt(self):
+        self._write_guards()
+        ret, ran, out, _err = self._ran(["--guards"])
+        self.assertEqual(ret, 0)
+        self.assertEqual(ran, sorted(run_tests.GUARD_TEST_FILES))
+        self.assertIn("FOCUSED diagnostic run", out)
+
+    def test_guards_union_with_file_is_deduplicated(self):
+        self._write_guards()
+        ret, ran, _out, _err = self._ran(["--guards", "--file", "test_fake.py",
+                                          "--file", run_tests.GUARD_TEST_FILES[0]])
+        self.assertEqual(ret, 0)
+        self.assertEqual(ran, sorted([*run_tests.GUARD_TEST_FILES, "test_fake.py"]))
+
+    def test_missing_guard_name_is_a_usage_error_for_guard_runs(self):
+        self._write_guards(run_tests.GUARD_TEST_FILES[1:])
+        ret, ran, _out, err = self._ran(["--guards"])
+        self.assertEqual(ret, 2)
+        self.assertEqual(ran, [])
+        self.assertIn(run_tests.GUARD_TEST_FILES[0], err)
+
+    def test_every_guard_file_exists_in_the_real_tests_directory(self):
+        real = Path(run_tests.__file__).resolve().parent / "tests"
+        for name in run_tests.GUARD_TEST_FILES:
+            with self.subTest(name=name):
+                self.assertTrue((real / name).is_file(), name)
+
+
+class GuardArgsTests(unittest.TestCase):
+    """Wave 24jwg (24jwe Requirement 2): `--guards` parses where `--file` does."""
+
+    def _parse(self, *argv):
+        return run_tests._parse_args(["run_tests.py", *argv])
+
+    def test_guards_expand_first_and_dedupe_only_overlap(self):
+        opts = self._parse("--file", "test_x.py", "--guards", "--file", run_tests.GUARD_TEST_FILES[2])
+        self.assertEqual(opts["files"], [*run_tests.GUARD_TEST_FILES, "test_x.py"])
+
+    def test_repeated_user_file_is_still_refused(self):
+        with self.assertRaises(run_tests._UsageError) as ctx:
+            self._parse("--guards", "--file", "test_x.py", "--file", "test_x.py")
+        self.assertIn("duplicate", str(ctx.exception))
+
+    def test_guards_follow_the_file_combination_rules(self):
+        self.assertEqual(self._parse("--guards", "--profile", "second")["profile"], "second")
+        for argv in (("--guards", "--no-cache"),
+                     ("--guards", "--schedule-control", "timing", "--timings-file", "t.json"),
+                     ("--guards", "--qualify-profile", "second", "--qualification-report", "r.json"),
+                     ("--guards", "--guards")):
+            with self.subTest(argv=argv), self.assertRaises(run_tests._UsageError):
+                self._parse(*argv)
+        with self.assertRaises(run_tests._UsageError) as ctx:
+            self._parse("--guards", "--no-cache")
+        self.assertIn("--guards and --no-cache", str(ctx.exception))
+
+
+class SeedVerificationOrderTests(unittest.TestCase):
+    """Wave 24jwg (24jwe AC-3): seeds 180 and 209 carry the verification-order
+    guidance in project-neutral terms, and seed 209 keeps its re-verification duties."""
+
+    SEEDS = Path(run_tests.__file__).resolve().parents[1] / "seeds"
+    FORBIDDEN = ("run_tests.py", "--guards", "GUARD_TEST_FILES", "test_mcp_tool_registry", "test_venv_bootstrap")
+
+    def _section(self, name, start, end):
+        text = (self.SEEDS / name).read_text(encoding="utf-8")
+        return text[text.index(start):text.index(end, text.index(start) + len(start))]
+
+    def test_seed_180_orders_verification_by_cost_without_repository_names(self):
+        section = self._section("180-implement-spec.prompt.md", "## Order verification by cost", "\n## ")
+        for clause in ("the project's fast guard tests", "rerun only what the repair affects",
+                       "once per wave, after the last repair", "last step before close"):
+            self.assertIn(clause, section)
+        for name in self.FORBIDDEN:
+            self.assertNotIn(name, section)
+
+    def test_seed_209_briefs_reverification_by_diff_and_keeps_its_duties(self):
+        section = self._section("209-agent-harness-core.prompt.md", "### Repair re-verification", "**Lane-clearing recipe")
+        for clause in ("the original finding, the repair diff and the directly affected context",
+                       "its duties above are unchanged", "reruns the exact original reproduction",
+                       "runs once per wave, after the last repair"):
+            self.assertIn(clause, section)
+        for name in self.FORBIDDEN:
+            self.assertNotIn(name, section)
+
+
 class FocusedCallOrderTests(unittest.TestCase):
     """Positive call-order spies: the focused path traverses every canonical seam (AC-4)."""
 
@@ -1271,9 +1375,12 @@ class ScheduleControlTests(_MainScaffoldTests):
                          ["test_b.py", "test_c.py", "test_fake.py", "test_a.py"])
 
     def test_alphabetical_candidate_submits_name_order_via_actual_executor(self):
-        for ch in "abc":
-            (self.tmp / f"test_{ch}.py").write_text("# fake\n", encoding="utf-8")
-        durations = {"test_a.py": 1.0, "test_b.py": 9.0, "test_c.py": 5.0, "test_fake.py": 3.0}
+        # Wave 24jwg (24jwe AC-6): a guard-named file stays in name order here;
+        # guard-first applies to production full runs only.
+        guard = run_tests.GUARD_TEST_FILES[0]
+        for name in ("test_a.py", "test_b.py", "test_c.py", guard):
+            (self.tmp / name).write_text("# fake\n", encoding="utf-8")
+        durations = {"test_a.py": 1.0, "test_b.py": 9.0, "test_c.py": 5.0, "test_fake.py": 3.0, guard: 2.0}
         self._write_manifest("d1", durations)
 
         def fake_run(path):
@@ -1285,10 +1392,33 @@ class ScheduleControlTests(_MainScaffoldTests):
             ret, _out, _err, _mocks = self._run("alphabetical", fake_run)
         self.assertEqual(ret, 0)
         self.assertEqual(_RecordingExecutor.last_submitted,
-                         ["test_a.py", "test_b.py", "test_c.py", "test_fake.py"])
+                         sorted(["test_a.py", "test_b.py", "test_c.py", "test_fake.py", guard]))
         self.assertEqual(self._manifest_path().read_bytes(), manifest_before)
 
-    def test_production_full_run_order_stays_alphabetical_despite_cached_timings(self):
+    def test_production_full_run_order_is_guard_first_then_alphabetical(self):
+        """Wave 24jwg (24jwe AC-6): the default and --no-cache full runs submit the guard
+        files first, in GUARD_TEST_FILES order, then the rest alphabetically."""
+        names = ["test_a.py", run_tests.GUARD_TEST_FILES[1], "test_b.py", run_tests.GUARD_TEST_FILES[0]]
+        for name in names:
+            (self.tmp / name).write_text("# fake\n", encoding="utf-8")
+
+        def fake_run(path):
+            return run_tests.FileResult(path.name, 0, "", 1, 0.1, 0)
+
+        for argv in (["run_tests.py"], ["run_tests.py", "--no-cache"]):
+            with self.subTest(argv=argv), \
+                    patch.object(run_tests, "_hash_inputs", return_value="mismatch"), \
+                    patch.object(run_tests, "_run_file", side_effect=fake_run), \
+                    patch.object(run_tests.concurrent.futures, "ThreadPoolExecutor", _RecordingExecutor), \
+                    patch.object(run_tests.concurrent.futures, "as_completed", lambda futures: list(futures)), \
+                    patch.object(sys, "argv", argv), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(run_tests.main(), 0)
+            self.assertEqual(_RecordingExecutor.last_submitted,
+                             [run_tests.GUARD_TEST_FILES[0], run_tests.GUARD_TEST_FILES[1],
+                              "test_a.py", "test_b.py", "test_fake.py"])
+
+    def test_production_full_run_order_stays_alphabetical_without_guard_files(self):
         for ch in "ab":
             (self.tmp / f"test_{ch}.py").write_text("# fake\n", encoding="utf-8")
         run_tests._write_cache("h", 9, {"test_a.py": 1.0, "test_b.py": 50.0, "test_fake.py": 20.0})

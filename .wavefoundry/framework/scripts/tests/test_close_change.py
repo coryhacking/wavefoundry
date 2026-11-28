@@ -458,8 +458,10 @@ class CloseChangeReviewNeutralityTests(_CloseChangeCase):
             text = path.read_text()
             path.write_text(text.replace("Spec ID:", "Change ID:").replace("Spec Status:", "Change Status:"))
         # Calculated with the pre-change review_policy, gardener_metadata,
-        # change_doc_checklist and vocabulary_profile from commit eba56ca5.
-        self.assertEqual(self.digest(), "39afdace44abe44b707f2d0541526447c1b8809a62205092cfe35824b549fd36")
+        # change_doc_checklist and vocabulary_profile from commit eba56ca5, then
+        # moved for the evaluator 8 -> 9 bump (wave 24jwg); with the version line
+        # set back to 8 the old value 39afdace... reproduces exactly.
+        self.assertEqual(self.digest(), "61041d09127fa4d445a7a9dbf2116d6550ac990324f6bfc9c0fb568789c6170f")
         staged = self.builder.plan(B)
         staged.write_text(_doc_text(B, "planned", ac=" ").replace(WAVE_ID, "TBD"))
         admitted = srv.wf_add_change_response(self.root, WAVE_ID, B, mode="create")

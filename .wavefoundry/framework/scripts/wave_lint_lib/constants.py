@@ -164,6 +164,10 @@ LEGACY_MARKERS = ("spec-change-lifecycle",)
 # migration edges, but the framework does not treat the legacy pack path as a supported surface.
 HYBRID_LEGACY_MARKERS = ()
 FACTOR_REVIEW_MARKERS = ("factor review", "factor-review")
+# Wave 24i2t (24fw1): leading text of the consolidated "no factor reviews switched on" docs-lint
+# warning. wf_audit_install matches it to carry the warning as pending while the install's
+# seed-050 row (which fills `applicable_factors` from the profile) is still to run.
+FACTOR_REVIEWS_OFF_WARNING_PREFIX = "docs/workflow-config.json: no factor reviews are switched on"
 JOURNAL_SIGNAL_MARKERS = ("watchpoint", "follow-up", "escalat", "review")
 JOURNAL_SALIENCE_MARKERS = (
     "critical",

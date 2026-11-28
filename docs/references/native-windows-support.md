@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-11-24
+Last verified: 2026-11-27
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -65,7 +65,7 @@ On native Windows a Python process spawned without a no-window flag can flash a 
 | ~~C-2~~ | ~~All 9 `.wavefoundry/bin/` launchers are bash-only~~ — **RESOLVED (wave 1p7tz):** the nine POSIX-only wrappers were replaced by one cross-OS `wf` dispatcher (`wf_cli.py`) behind a `wf` (bash) + `wf.cmd` (Windows) shim pair; `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf setup`, `wf upgrade`, `wf update-indexes`, `wf dashboard`, `wf lifecycle-id` run on every OS. | `render_platform_surfaces.render_bin_launchers`; `wf_cli.py` | No action — operator CLI is cross-OS. |
 | ~~C-3~~ | ~~Committed hook config reflects whichever OS last rendered it~~ — **RESOLVED:** committed commands are platform-independent; Claude performs owner-root resolution inside Python and Copilot carries its native `bash` and `powershell` fields. | platform renderer; host hook configs | Native-Windows runtime smoke remains an operator validation item. |
 
-Native Windows MCP configs use `command: "python3"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly as a workaround; `server.py` owns shared tool-venv activation. Python 3.13 or newer is recommended, but 3.11 is the current minimum.
+Native Windows MCP configs use `command: "python3"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly as a workaround; `server.py` owns shared tool-venv activation. Python 3.14 is recommended, but 3.11 is the current minimum.
 
 ### Diagnose a new native-Windows workstation before MCP
 
@@ -141,7 +141,7 @@ All critical (C), medium (M), and low (L) items identified in this scoping asses
 
 ## Python runtime policy
 
-Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
+Python 3.14 is recommended. Python 3.11 to 3.13 remain supported and receive security fixes only; python.org publishes no installers for those fixes, so a copy installed from python.org stops receiving them, while package-manager builds may continue. The minimum is still 3.11, and no removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
 
 The notice appears once per `wf` invocation or direct MCP serving startup, on stderr. Inspect `setup_readiness.advisories` through index health when host logs are hidden. It does not request repair or change command success. Follow the [runtime transition procedure](../../.wavefoundry/framework/README.md#python-runtime-advisory-and-transition): select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated environment override, and retain pending recovery ownership. Ordinary setup may replace an incompatible tool environment; the advisory never does.
 

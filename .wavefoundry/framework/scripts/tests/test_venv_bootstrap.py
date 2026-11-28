@@ -605,11 +605,65 @@ class EnsurePythonResolvesTests(unittest.TestCase):
         self._assert_nothing_created()
 
     def test_ok_when_python3_already_ge_311(self):
-        with patch.object(vb.shutil, "which", side_effect=self._which({"python3": "/usr/bin/python3"})), patch.object(
+        with patch.object(vb.sys, "version_info", (3, 11, 4)), patch.object(
+            vb.shutil, "which", side_effect=self._which({"python3": "/usr/bin/python3"})), patch.object(
             vb.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps({"version": [3, 11], "executable": "/usr/bin/python3"}), "")
         ):
             self.assertEqual(vb.ensure_python_resolves(strict=True), "ok")
         self._assert_nothing_created()
+
+    def _ok_probe(self, version, *, strict):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        err, out = io.StringIO(), io.StringIO()
+        with patch.object(vb.shutil, "which", side_effect=self._which({"python3": "/usr/bin/python3"})), patch.object(
+            vb.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 0, json.dumps({"version": list(version), "executable": "/usr/bin/python3.x"}), "")
+        ), patch.object(vb.sys, "version_info", (3, 14, 2)), patch.object(
+            vb.sys, "executable", "/opt/python3.14/bin/python3.14"
+        ), redirect_stderr(err), redirect_stdout(out):
+            result = vb.ensure_python_resolves(strict=strict)
+        return result, err.getvalue(), out.getvalue()
+
+    def test_strict_ok_reports_path_python3_that_differs_from_setup_interpreter(self):
+        # Wave 24i2t (24fw1 AC-2): setup run with an explicit 3.14 while python3 is 3.12 must say
+        # that the host and wf will refuse the environment, and how to fix it; the result stays ok.
+        result, err, out = self._ok_probe((3, 12), strict=True)
+        self.assertEqual(result, "ok")
+        self.assertEqual(out, "")
+        self.assertEqual(err.count("wavefoundry: setup is running on Python 3.14"), 1)
+        self.assertIn("/opt/python3.14/bin/python3.14", err)
+        self.assertIn("the python3 on this PATH is Python 3.12", err)
+        self.assertIn("/usr/bin/python3.x", err)
+        self.assertIn("will refuse a tool environment built for a different Python version", err)
+        self.assertIn("Rerun setup with that python3", err)
+        self.assertIn(r".\.wavefoundry\bin\wf.cmd setup" if os.name == "nt" else ".wavefoundry/bin/wf setup", err)
+
+    def test_strict_ok_mismatch_remedy_names_the_windows_launcher_on_windows(self):
+        import io
+        from contextlib import redirect_stderr
+
+        err = io.StringIO()
+        with patch.object(vb.os, "name", "nt"), patch.object(vb.sys, "version_info", (3, 14, 2)), \
+                redirect_stderr(err):
+            vb._report_interpreter_mismatch({"version": (3, 12), "executable": "C:\\Python312\\python.exe"})
+        self.assertIn(r".\.wavefoundry\bin\wf.cmd setup", err.getvalue())
+        self.assertNotIn(".wavefoundry/bin/wf setup", err.getvalue())
+
+    def test_strict_ok_is_silent_when_versions_match_and_non_strict_never_reports(self):
+        self.assertEqual(self._ok_probe((3, 14), strict=True), ("ok", "", ""))
+        self.assertEqual(self._ok_probe((3, 12), strict=False), ("ok", "", ""))
+
+    def test_unresolved_guidance_recommends_python_314(self):
+        import io
+        from contextlib import redirect_stderr
+
+        buf = io.StringIO()
+        with patch.object(vb.shutil, "which", return_value=None), redirect_stderr(buf):
+            vb.ensure_python_resolves(strict=False)
+        self.assertIn("Python 3.14 is recommended", buf.getvalue())
+        self.assertNotIn("3.13+", buf.getvalue())
 
     def test_python3_below_311_warns_then_strict_raises(self):
         import io

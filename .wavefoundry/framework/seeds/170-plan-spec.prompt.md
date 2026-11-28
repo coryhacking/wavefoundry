@@ -128,6 +128,7 @@ flowchart LR
 - A requirement naming a set the implementer must act on states the rule deriving that set; the derived set governs. Examples or a historical enumeration do not replace that rule.
 - An acceptance criterion names the observable outcome and kind of oracle. Exact mutation, known-bad and fixture mechanics are designed during implementation and judged at delivery; readiness verifies that the criterion can pass and can fail without prescribing those mechanics.
 - A readiness repair narrows or deletes a claim it cannot verify rather than elaborating it. Explicitly identify any new mechanism introduced by the repair as new review surface.
+- A spec that names Windows, macOS or Linux without changing platform-specific behaviour may declare `cross_platform_changed: false` on a line of its own in its body; review policy ignores a mention inside a sentence and does not read the Progress Log. The declaration rules out those names as a delivery-Council trigger for that spec only; readiness reviewers check it like any other plan claim. A change that alters platform-specific behaviour says so, and may declare `cross_platform_changed: true`.
 
 ### Acceptance criteria assert what the change controls
 

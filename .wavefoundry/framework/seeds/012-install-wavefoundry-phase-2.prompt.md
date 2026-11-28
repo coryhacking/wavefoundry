@@ -31,7 +31,7 @@ Lint-as-you-go is the install-time discipline: blocking lint errors and missing 
 
 If the return is `{status: "checked_but_missing", ...}`, Phase 1 didn't actually produce the artifact for some row. Return to seed-011 and fix.
 
-If the return is `{status: "lint_errors", ...}`, its `errors` list contains only blocking findings; fix them before proceeding. The companion `pending_lint` object may list expected absences while Phase 2 seed rows remain pending and does not block this row.
+If the return is `{status: "lint_errors", ...}`, its `errors` list contains only blocking findings; fix them before proceeding. The companion `pending_lint` object may list expected absences while Phase 2 seed rows remain pending and does not block this row. Until row 2.5 (seed-050) runs, `pending_lint.warnings` may also carry the "no factor reviews are switched on" warning; row 2.5 resolves it, so do not ask the operator to choose factors here.
 
 ### 2.1.5 — Request approval for guarded edits (instruction)
 

@@ -28,6 +28,7 @@ import markdown_layout  # blank line before headings (change 22y1k)
 from history_paths import is_history_path  # shared history components (wave 1zyb2, 1zxnt)
 
 from .constants import (
+    FACTOR_REVIEWS_OFF_WARNING_PREFIX,
     OPEN_CONTAINER_STATUSES,
     ALLOWED_CHANGE_STATUS_TRANSITIONS,
     ALLOWED_ITEM_STATUS_TRANSITIONS,
@@ -1062,19 +1063,23 @@ def check_factor_surface(root: Path) -> tuple[list[str], list[str]]:
                     if str(factor_id) in active_factors:
                         continue
                     inactive_applicable.append(str(factor_id))
-                if not active_factors and len(inactive_applicable) >= 2:
+                if not active_factors and inactive_applicable:
+                    # Wave 24i2t (24fw1): plain wording, and one factor is enough; the
+                    # per-factor wording below is kept for projects with some reviews on.
+                    count = len(inactive_applicable)
                     factor_list = ", ".join(f"`{fid}`" for fid in inactive_applicable)
+                    noun = "factor (review area)" if count == 1 else "factors (review areas)"
                     warnings.append(
-                        f"docs/workflow-config.json: `factor_review_policy.applicable_factors` "
-                        f"is empty while docs/repo-profile.json marks {len(inactive_applicable)} "
-                        f"factors applicable ({factor_list}) — no factor-review lanes are active. "
-                        f"Next step: add the factor IDs you want to run to `applicable_factors` "
-                        f"in docs/workflow-config.json (each active lane gets a generated "
-                        f"`docs/agents/factor-<nn>-<name>.md`; re-run the agent-entry-surface "
-                        f"generation, e.g. via `Upgrade Wavefoundry`), or leave it empty "
-                        f"deliberately (and align those assessments to `partial`) if this project "
-                        f"runs no factor-review lanes. No canonical docs are required while the "
-                        f"lane set is empty."
+                        f"{FACTOR_REVIEWS_OFF_WARNING_PREFIX}, although docs/repo-profile.json "
+                        f"marks {count} {noun} as relevant: {factor_list}. "
+                        f"That is fine to start with, and it blocks nothing. To switch some on, "
+                        f"add their numbers to `factor_review_policy.applicable_factors` in "
+                        f"docs/workflow-config.json, mark any you leave off `partial` in "
+                        f"docs/repo-profile.json, and ask your agent to generate their reviewer "
+                        f"docs (`docs/agents/factor-<nn>-<name>.md`); docs lint reports an error "
+                        f"for each one until its doc exists, and each becomes a reviewer agent that "
+                        f"wave reviews can call on. To keep none, mark them `partial` in docs/repo-profile.json, "
+                        f"which stops this notice."
                     )
                 else:
                     for factor_id in inactive_applicable:

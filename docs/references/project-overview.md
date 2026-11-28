@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-24
+Last verified: 2026-11-27
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -166,6 +166,6 @@ Wave delivery follows the configured review policy and its current
 
 ## Python runtime policy
 
-Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
+Python 3.14 is recommended. Python 3.11 to 3.13 remain supported and receive security fixes only; python.org publishes no installers for those fixes, so a copy installed from python.org stops receiving them, while package-manager builds may continue. The minimum is still 3.11, and no removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
 
 The notice appears once per `wf` invocation or direct MCP serving startup, on stderr. Inspect `setup_readiness.advisories` through index health when host logs are hidden. It does not request repair or change command success. Follow the [runtime transition procedure](../../.wavefoundry/framework/README.md#python-runtime-advisory-and-transition): select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated environment override, and retain pending recovery ownership. Ordinary setup may replace an incompatible tool environment; the advisory never does.

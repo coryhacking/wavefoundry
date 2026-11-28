@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-24
+Last verified: 2026-11-27
 
 ## Tensorwell qualification
 
@@ -168,14 +168,18 @@ Linux or Intel macOS package execution.
 
 The canonical runner (`python3 .wavefoundry/framework/scripts/run_tests.py`)
 runs each `tests/test_*.py` file in its own subprocess, capped at six
-concurrent workers, in alphabetical name order. Alphabetical is the MEASURED
-schedule: a counterbalanced comparison (A-T-T-A) against a timing-guided
+concurrent workers. Since wave 24jwg the production order starts the guard
+files (`GUARD_TEST_FILES`: pins, scans and censuses that finish in seconds), so
+a guard failure's FAIL line appears early, then runs every other file in
+alphabetical name order; the wall-time effect of the guard prefix was not
+measured. Alphabetical was the MEASURED schedule: a counterbalanced comparison (A-T-T-A) against a timing-guided
 longest-first candidate, run on a byte-identical digest-bound timing manifest
 and unchanged runner source, selected alphabetical (means 130.5 s vs 136.8 s;
 evidence under `docs/waves/1tmtx test-suite-performance/evidence/`). The
 benchmark-only interface `--schedule-control bootstrap|alphabetical|timing
 --timings-file <path>` reproduces that comparison and never touches the
-production last-green cache.
+production last-green cache; its `alphabetical` mode no longer matches the
+production order exactly, because production adds the guard prefix.
 
 Every run prints per-file elapsed seconds, a bounded top-10 slowest-file
 summary, aggregate worker service time, and the aggregate skip count; a

@@ -669,6 +669,56 @@ class EmptyWaveReviewPolicyMigrationTests(unittest.TestCase):
         )
 
 
+class CrossPlatformDeclarationTests(unittest.TestCase):
+    """Wave 24jwg (24jwf AC-1, AC-2): `cross_platform_changed: false` rules out the
+    bare OS-name tokens within the text that declares it, and nowhere else."""
+
+    NAMES = "Behaviour is the same on Windows, macOS and Linux.\n"
+    FALSE = "cross_platform_changed: false\n"
+
+    def triggers(self, *texts):
+        return review_policy.extract_full_council_triggers(texts)
+
+    def test_os_names_alone_still_select_the_field(self):
+        self.assertIn("cross_platform_changed", self.triggers(self.NAMES))
+
+    def test_false_declaration_rules_out_os_names_in_its_own_text(self):
+        self.assertNotIn("cross_platform_changed", self.triggers(self.NAMES + self.FALSE))
+
+    def test_cross_platform_phrase_and_explicit_true_still_select_it(self):
+        for extra in ("This is a cross-platform change.\n", "A cross platform path.\n",
+                      "cross_platform_changed: true\n"):
+            with self.subTest(extra=extra):
+                self.assertIn("cross_platform_changed", self.triggers(self.NAMES + self.FALSE + extra))
+
+    def test_one_texts_false_never_suppresses_a_sibling_text(self):
+        sibling = "Fix the path separator on Windows.\n"
+        self.assertIn("cross_platform_changed", self.triggers(self.NAMES + self.FALSE, sibling))
+        self.assertIn("cross_platform_changed", self.triggers(sibling, self.NAMES + self.FALSE))
+
+    def test_a_false_mentioned_inside_prose_is_not_a_declaration(self):
+        for prose in ("Do not declare cross_platform_changed: false here.\n",
+                      "Seed 170 says a spec may declare `cross_platform_changed: false` on its own line.\n"):
+            with self.subTest(prose=prose):
+                self.assertIn("cross_platform_changed", self.triggers(self.NAMES + prose))
+        for line in ("- cross_platform_changed: false\n", "`cross_platform_changed: false`\n",
+                     "  cross_platform_changed = false.\n"):
+            with self.subTest(line=line):
+                self.assertNotIn("cross_platform_changed", self.triggers(self.NAMES + line))
+
+    def test_false_declaration_suppresses_no_other_field(self):
+        result = self.triggers(self.NAMES + self.FALSE + "It moves a trust boundary.\n")
+        self.assertEqual(result, ("trust_boundary_changed",))
+
+    def test_a_progress_log_declaration_counts_for_neither_prepare_nor_small_lane(self):
+        """Prepare and the small-change lane both read the canonical review text,
+        which excludes Progress Log narration, so a declaration written only there
+        rules out nothing for either."""
+        spec = ("# Demo\n\n## Requirements\n\n1. " + self.NAMES + "\n## Progress Log\n\n"
+                "| Date | Update | Evidence |\n| --- | --- | --- |\n| 2026-11-27 | " + self.FALSE.strip() + " | x |\n")
+        self.assertIn("cross_platform_changed", self.triggers(review_policy.normalized_review_text(spec)))
+
+
 class ReviewPolicyUpgradeTests(unittest.TestCase):
     def test_evaluator_version_eight_is_the_shipped_transition_boundary(self):
         """Deliberate tripwire: update it consciously on every evaluator bump.
@@ -694,9 +744,14 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
         v2 to v3 was: without it the permanent ledger cannot tell a plan edit
         apart from a canonicalization change. The re-digest happens either way,
         so the bump only decides whether the history can explain it.
+
+        v8 to v9 (wave 24jwg, change 24jwf): an explicit
+        `cross_platform_changed: false` suppresses the bare OS-name tokens
+        within the admitted text that declares it; the field is evaluated per
+        text and unioned, so identical inputs can yield a different receipt.
         """
 
-        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 8)
+        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 9)
 
     def test_upgrade_policy_guidance_matches_legacy_migration(self):
         self.assertIn("delivery_mode=targeted", review_policy.UPGRADE_POLICY_BLOCK)

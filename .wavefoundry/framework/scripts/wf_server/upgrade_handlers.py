@@ -265,6 +265,28 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
     # Wave 1wuju (1wujs AC-1; delivery review ARCH-DEL-2): the install audit runs
     # the full-corpus lint, which includes docs/waves, so an advisory sensor's
     # finding on an activated carrier surfaces here too, flagged and non-blocking.
+    # Wave 24i2t (24fw1): the factor default is written by the install's seed-050 row
+    # (filling `applicable_factors` from the profile), so the "no factor reviews switched
+    # on" warning raised between the profile row and that row is expected, not advice.
+    # Search every row, not the phase-filtered scope, so phase= audits agree.
+    pending_factor_row = next(
+        (row for row in rows if row.source == "seed-050" and row.is_pending), None
+    )
+    pending_warnings: list[str] = []
+    if pending_factor_row is not None:
+        from wave_lint_lib.constants import FACTOR_REVIEWS_OFF_WARNING_PREFIX
+
+        kept_warnings: list[str] = []
+        for warning in lint_result.get("warnings") or []:
+            text = str(warning).strip()
+            while text.startswith("WARNING:"):
+                text = text[len("WARNING:"):].lstrip()
+            if text.startswith(FACTOR_REVIEWS_OFF_WARNING_PREFIX):
+                pending_warnings.append(warning)
+            else:
+                kept_warnings.append(warning)
+        if pending_warnings:
+            lint_result = {**lint_result, "warnings": kept_warnings}
     lint_warning_diagnostics = _docs_lint_warning_diagnostics(
         lint_result, recovery_tools=["wf_audit_install", "wf_validate_docs"]
     )
@@ -285,6 +307,12 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
         "note": (
             "These missing artifacts are expected while Phase 2 seed rows remain pending; "
             "they become blocking at the final install gate."
+        ),
+        "warnings": pending_warnings,
+        "warnings_note": (
+            f"Expected until row {pending_factor_row.number} ({pending_factor_row.source}) runs: "
+            "it switches on factor reviews from docs/repo-profile.json. Nothing to do now."
+            if pending_warnings else ""
         ),
     }
     if blocking:

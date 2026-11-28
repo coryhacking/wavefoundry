@@ -334,6 +334,29 @@ def _format_interpreter_probe(probe: dict) -> str:
     return "; ".join(facts)
 
 
+def _report_interpreter_mismatch(probe: dict) -> None:
+    """Setup only: say when the python3 on this PATH is not the interpreter running setup.
+
+    The agent host and ``wf`` launch ``python3``; ``activate_tool_venv`` refuses a tool
+    environment built for another major.minor, so an operator who ran setup with another
+    interpreter needs to hear it before the host fails. Stderr only; never changes the result.
+    """
+    path_version = tuple(probe.get("version") or ())[:2]
+    running = tuple(sys.version_info[:2])
+    if len(path_version) != 2 or path_version == running:
+        return
+    setup_example = r".\.wavefoundry\bin\wf.cmd setup" if os.name == "nt" else ".wavefoundry/bin/wf setup"
+    print(
+        f"wavefoundry: setup is running on Python {running[0]}.{running[1]} ({sys.executable!r}), "
+        f"but the python3 on this PATH is Python {path_version[0]}.{path_version[1]} "
+        f"({probe.get('executable') or probe.get('resolved')!r}). The agent host and wf launch python3, "
+        "so they will refuse a tool environment built for a different Python version. "
+        f"Rerun setup with that python3 (for example {setup_example}), or make the "
+        "interpreter you intend to use the python3 on PATH, then restart the agent host.",
+        file=sys.stderr,
+    )
+
+
 def ensure_python_resolves(strict: bool = False) -> str:
     """DETECT + GUIDE only: canonical python3 must execute and meet the minimum.
 
@@ -346,6 +369,8 @@ def ensure_python_resolves(strict: bool = False) -> str:
         return "skipped"
     probe = _probe_interpreter(MCP_PYTHON_COMMAND)
     if probe["state"] == "ok":
+        if strict:
+            _report_interpreter_mismatch(probe)
         return "ok"
     print("wavefoundry: Python prerequisite failed: " + _format_interpreter_probe(probe), file=sys.stderr)
     if os.name == "nt":
@@ -370,7 +395,7 @@ def ensure_python_resolves(strict: bool = False) -> str:
     print(
         'wavefoundry: MCP requires command: "python3". Verify python3 --version reports '
         "Python 3.11 or newer, then verify server.py --dry-run and fully restart the agent host. "
-        "Python 3.13+ is recommended. Shell-only aliases and .cmd shims do not establish "
+        "Python 3.14 is recommended. Shell-only aliases and .cmd shims do not establish "
         "raw-spawn readiness. A seeded checkout does not prove workstation readiness; "
         "do not reseed or rebuild indexes to fix command resolution. "
         "Wavefoundry does not modify your Python installation or PATH.", file=sys.stderr,
